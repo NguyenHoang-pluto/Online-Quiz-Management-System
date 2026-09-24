@@ -1,0 +1,43 @@
+{
+  "name": "eduexam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EduExam Pro - He thong thi trac nghiem truc tuyen (Nhom 08)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev -w @eduexam/api",
+    "dev:web": "npm run dev -w @eduexam/web",
+    "share": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/share.ps1",
+    "share:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/share-stop.ps1",
+    "share:firewall": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/firewall-share.ps1",
+    "share:cert": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/cert-trust.ps1",
+    "build": "npm run build -w @eduexam/shared && npm run build -w @eduexam/api && npm run build -w @eduexam/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e:flow -w @eduexam/api",
+    "test:ui": "npm run test:ui -w @eduexam/web",
+    "test:camera": "npm run test:camera -w @eduexam/web",
+    "setup:proctoring": "npm run setup:proctoring -w @eduexam/web",
+    "mysql:start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/mysql.ps1 -Action start",
+    "mysql:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/mysql.ps1 -Action stop",
+    "mysql:status": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/mysql.ps1 -Action status",
+    "db:migrate": "npm run db:migrate -w @eduexam/api",
+    "db:seed": "npm run db:seed -w @eduexam/api",
+    "db:studio": "npm run db:studio -w @eduexam/api",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

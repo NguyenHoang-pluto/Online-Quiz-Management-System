@@ -1,0 +1,631 @@
+// ============================================================
+// EduExam Pro - Luoc do CSDL (ERD)
+// Nhom 08 - Quan ly thi trac nghiem truc tuyen
+//
+// Quy uoc dat ten:
+//   - model  : PascalCase so it   (User, Question)
+//   - bang   : snake_case so nhieu (@@map("users"))
+//   - cot    : camelCase -> snake_case (@map)
+//
+// NGUYEN TAC BAO MAT QUAN TRONG NHAT:
+//   QuestionOption.isCorrect KHONG BAO GIO duoc tra ve API cho sinh vien.
+//   Moi viec cham diem deu thuc hien tai server.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// MODULE 1 - QUAN TRI & DANH MUC
+// ============================================================
+
+enum Role {
+  ADMIN
+  LECTURER
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  /// MSSV voi sinh vien, ma giang vien voi giang vien
+  code         String     @unique @db.VarChar(32)
+  email        String     @unique @db.VarChar(160)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  fullName     String     @map("full_name") @db.VarChar(160)
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  avatarUrl    String?    @map("avatar_url") @db.VarChar(512)
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  // Quan he
+  teachingClasses  CourseClass[]    @relation("LecturerClasses")
+  enrollments      Enrollment[]
+  createdQuestions Question[]       @relation("QuestionAuthor")
+  createdExams     Exam[]           @relation("ExamAuthor")
+  attempts         Attempt[]
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  passwordResets   PasswordReset[]
+
+  @@index([role, status])
+  @@map("users")
+}
+
+/// Phien dang nhap. Luu de thu hoi token va chan 1 tai khoan dang nhap 2 may.
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  /// Bam SHA-256 cua refresh token, khong luu token goc
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  userAgent  String?   @map("user_agent") @db.VarChar(512)
+  ipAddress  String?   @map("ip_address") @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
+}
+
+/// Quen mat khau - chuc nang con thieu trong file Excel, da bo sung
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+model Subject {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(32)
+  name      String   @db.VarChar(200)
+  credits   Int      @default(3)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  chapters      Chapter[]
+  courseClasses CourseClass[]
+  questions     Question[]
+  exams         Exam[]
+
+  @@map("subjects")
+}
+
+enum CourseClassStatus {
+  OPEN
+  LOCKED
+  ARCHIVED
+}
+
+model CourseClass {
+  id         String            @id @default(cuid())
+  code       String            @unique @db.VarChar(32)
+  name       String            @db.VarChar(200)
+  subjectId  String            @map("subject_id")
+  lecturerId String            @map("lecturer_id")
+  semester   String            @db.VarChar(32)
+  capacity   Int               @default(0)
+  status     CourseClassStatus @default(OPEN)
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  subject     Subject      @relation(fields: [subjectId], references: [id])
+  lecturer    User         @relation("LecturerClasses", fields: [lecturerId], references: [id])
+  enrollments Enrollment[]
+  exams       Exam[]
+
+  @@index([subjectId])
+  @@index([lecturerId])
+  @@map("course_classes")
+}
+
+model Enrollment {
+  id            String   @id @default(cuid())
+  courseClassId String   @map("course_class_id")
+  studentId     String   @map("student_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  courseClass CourseClass @relation(fields: [courseClassId], references: [id], onDelete: Cascade)
+  student     User        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([courseClassId, studentId])
+  @@index([studentId])
+  @@map("enrollments")
+}
+
+/// Phong may. Chi dung cho ca thi che do LAB.
+model ExamRoom {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(32)
+  name      String   @db.VarChar(160)
+  building  String?  @db.VarChar(64)
+  seatCount Int      @default(0) @map("seat_count")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ipRules RoomIpRule[]
+  exams   Exam[]
+
+  @@map("exam_rooms")
+}
+
+/// Dai IP duoc phep truy cap khi thi tai phong may.
+/// Day la tin hieu chong thi ho manh nhat va re nhat.
+model RoomIpRule {
+  id     String @id @default(cuid())
+  roomId String @map("room_id")
+  /// Dinh dang CIDR, vi du 10.20.30.0/24
+  cidr   String @db.VarChar(64)
+  note   String? @db.VarChar(255)
+
+  room ExamRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@map("room_ip_rules")
+}
+
+/// Nhat ky thao tac - chuc nang con thieu trong file Excel, da bo sung
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  @map("actor_id")
+  action     String   @db.VarChar(80)
+  entityType String   @map("entity_type") @db.VarChar(64)
+  entityId   String?  @map("entity_id") @db.VarChar(64)
+  payload    Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// MODULE 2 - NGAN HANG CAU HOI
+// ============================================================
+
+model Chapter {
+  id         String   @id @default(cuid())
+  subjectId  String   @map("subject_id")
+  code       String   @db.VarChar(32)
+  name       String   @db.VarChar(200)
+  orderIndex Int      @default(0) @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  subject     Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  matrixItems ExamMatrixItem[]
+
+  @@unique([subjectId, code])
+  @@map("chapters")
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Question {
+  id         String         @id @default(cuid())
+  subjectId  String         @map("subject_id")
+  chapterId  String         @map("chapter_id")
+  type       QuestionType
+  difficulty Difficulty
+  status     QuestionStatus @default(ACTIVE)
+  /// Noi dung nguon dang LaTeX/Markdown do giang vien soan
+  content    String         @db.Text
+  /// Anh minh hoa, luu tren MinIO/S3
+  imageUrl   String?        @map("image_url") @db.VarChar(512)
+  /// Ngoai pham vi theo file Excel. Giu cot de mockup Module 2 khong phai bo,
+  /// nhung chi hien thi khi cau hinh de thi cho phep.
+  explanation   String?  @db.Text
+  defaultScore  Decimal  @default(1.00) @map("default_score") @db.Decimal(5, 2)
+  createdById   String   @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  subject          Subject           @relation(fields: [subjectId], references: [id])
+  chapter          Chapter           @relation(fields: [chapterId], references: [id])
+  createdBy        User              @relation("QuestionAuthor", fields: [createdById], references: [id])
+  options          QuestionOption[]
+  attemptQuestions AttemptQuestion[]
+  itemAnalyses     ItemAnalysis[]
+
+  @@index([subjectId, chapterId, difficulty, status])
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String  @id @default(cuid())
+  questionId String  @map("question_id")
+  /// Nhan goc A/B/C/D truoc khi tron
+  label      String  @db.VarChar(4)
+  content    String  @db.Text
+  /// KHONG BAO GIO serialize truong nay ra API cho sinh vien
+  isCorrect  Boolean @default(false) @map("is_correct")
+  orderIndex Int     @default(0) @map("order_index")
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("question_options")
+}
+
+enum ImportSource {
+  EXCEL
+  WORD_PANDOC
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+/// Nhat ky import cau hoi / sinh vien. Chay nen qua BullMQ.
+model ImportJob {
+  id           String       @id @default(cuid())
+  source       ImportSource
+  status       ImportStatus @default(PENDING)
+  fileName     String       @map("file_name") @db.VarChar(255)
+  totalRows    Int          @default(0) @map("total_rows")
+  successRows  Int          @default(0) @map("success_rows")
+  failedRows   Int          @default(0) @map("failed_rows")
+  /// Chi tiet loi tung dong de nguoi dung sua lai file
+  errors       Json?
+  createdById  String       @map("created_by_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  finishedAt   DateTime?    @map("finished_at")
+
+  @@index([createdById, createdAt])
+  @@map("import_jobs")
+}
+
+// ============================================================
+// MODULE 3 - DE THI, MA TRAN DE & CHINH SACH GIAM SAT
+// ============================================================
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum ResultDisplay {
+  NONE
+  SCORE_ONLY
+  WITH_ANSWERS
+}
+
+/// Hinh thuc thi. Quyet dinh tin hieu giam sat nao duoc bat.
+enum ProctoringMode {
+  LAB
+  REMOTE
+}
+
+enum ViolationAction {
+  WARN
+  FLAG
+  AUTO_SUBMIT
+}
+
+/// Ho so nguong giam sat. Tach rieng de khong hard-code nguong,
+/// vi nguong o phong may va nguong thi tai nha phai khac nhau.
+model ProctoringPolicy {
+  id       String         @id @default(cuid())
+  name     String         @db.VarChar(120)
+  mode     ProctoringMode
+  /// He thong tao san 2 ho so chuan, giang vien khong sua duoc
+  isSystem Boolean        @default(false) @map("is_system")
+
+  /// { tabBlur, windowBlur, paste, heartbeat, faceAbsent, faceMultiple, faceAway, ipFence }
+  signalsEnabled Json @map("signals_enabled")
+  /// { blurMs, heartbeatTimeoutS, faceAbsentMs, maxViolations }
+  thresholds     Json
+
+  actionOnExceed ViolationAction @default(FLAG) @map("action_on_exceed")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  exams Exam[]
+
+  @@map("proctoring_policies")
+}
+
+model Exam {
+  id            String @id @default(cuid())
+  title         String @db.VarChar(255)
+  subjectId     String @map("subject_id")
+  courseClassId String @map("course_class_id")
+
+  durationMinutes Int      @map("duration_minutes")
+  openAt          DateTime @map("open_at")
+  closeAt         DateTime @map("close_at")
+
+  shuffleQuestions Boolean       @default(true) @map("shuffle_questions")
+  shuffleOptions   Boolean       @default(true) @map("shuffle_options")
+  resultDisplay    ResultDisplay @default(SCORE_ONLY) @map("result_display")
+  totalScore       Decimal       @default(10.00) @map("total_score") @db.Decimal(5, 2)
+
+  /// Quy tac cham cau nhieu dap an: true = dung het moi tinh diem
+  strictMultipleChoice Boolean @default(true) @map("strict_multiple_choice")
+
+  status ExamStatus @default(DRAFT)
+
+  // --- Cau hinh giam sat ---
+  proctoringMode ProctoringMode @default(LAB) @map("proctoring_mode")
+  policyId       String?        @map("policy_id")
+  /// Chi dung khi proctoringMode = LAB
+  roomId         String?        @map("room_id")
+
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subject     Subject           @relation(fields: [subjectId], references: [id])
+  courseClass CourseClass       @relation(fields: [courseClassId], references: [id])
+  policy      ProctoringPolicy? @relation(fields: [policyId], references: [id])
+  room        ExamRoom?         @relation(fields: [roomId], references: [id])
+  createdBy   User              @relation("ExamAuthor", fields: [createdById], references: [id])
+
+  matrixItems  ExamMatrixItem[]
+  attempts     Attempt[]
+  itemAnalyses ItemAnalysis[]
+
+  @@index([courseClassId, status])
+  @@index([openAt, closeAt])
+  @@map("exams")
+}
+
+/// Mot o trong ma tran de: chuong X, muc do Y, can Z cau.
+model ExamMatrixItem {
+  id         String     @id @default(cuid())
+  examId     String     @map("exam_id")
+  chapterId  String     @map("chapter_id")
+  difficulty Difficulty
+  quantity   Int
+
+  exam    Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id])
+
+  @@unique([examId, chapterId, difficulty])
+  @@map("exam_matrix_items")
+}
+
+// ============================================================
+// MODULE 4 - LAM BAI THI
+// ============================================================
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  TERMINATED
+}
+
+model Attempt {
+  id        String @id @default(cuid())
+  examId    String @map("exam_id")
+  studentId String @map("student_id")
+
+  status AttemptStatus @default(IN_PROGRESS)
+
+  /// Dong ho do SERVER quyet dinh. Client chi hien thi.
+  /// Chong sinh vien chinh gio may.
+  startedAt   DateTime  @default(now()) @map("started_at")
+  deadlineAt  DateTime  @map("deadline_at")
+  submittedAt DateTime? @map("submitted_at")
+
+  /// Ghi de hinh thuc thi cho tung sinh vien.
+  /// Vi du ca lop thi tai phong nhung 2 SV om duoc thi tu xa.
+  proctoringMode ProctoringMode @map("proctoring_mode")
+
+  /// Phien dang nhap dang giu quyen lam bai. Phien moi duoc phep chiem quyen,
+  /// phien cu lap tuc mat quyen luu dap an.
+  sessionId   String? @map("session_id") @db.VarChar(64)
+  /// So lan luot thi bi chuyen sang phien khac.
+  ///
+  /// Mot vai lan la binh thuong: dang xuat roi vao lai, het han token, sap
+  /// trinh duyet. Nhung con so tang lien tuc nghia la co hai thiet bi dang
+  /// gianh nhau cung mot bai — do moi la dau hieu giang vien can thay.
+  sessionTakeoverCount Int @default(0) @map("session_takeover_count")
+  ipAddress   String? @map("ip_address") @db.VarChar(64)
+  machineCode String? @map("machine_code") @db.VarChar(32)
+
+  /// Da xac nhan the le va dong y du lieu sinh trac (che do REMOTE)
+  consentAt DateTime? @map("consent_at")
+
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+  violationCount  Int       @default(0) @map("violation_count")
+
+  // --- Ket qua, chi dien sau khi cham ---
+  score        Decimal? @db.Decimal(5, 2)
+  correctCount Int?     @map("correct_count")
+  gradedAt     DateTime? @map("graded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  exam      Exam              @relation(fields: [examId], references: [id])
+  student   User              @relation(fields: [studentId], references: [id])
+  questions AttemptQuestion[]
+  events    ProctoringEvent[]
+  violations Violation[]
+
+  /// Moi sinh vien chi co 1 luot thi cho moi de.
+  /// Cho thi nhieu lan la OUT-OF-SCOPE theo file Excel.
+  @@unique([examId, studentId])
+  @@index([examId, status])
+  @@map("attempts")
+}
+
+/// Anh chup de da tron cua rieng mot sinh vien.
+/// BAT BUOC luu lai - neu sinh lai khi tai trang thi de se doi.
+model AttemptQuestion {
+  id         String @id @default(cuid())
+  attemptId  String @map("attempt_id")
+  questionId String @map("question_id")
+  /// Thu tu cau hoi sau khi tron
+  orderIndex Int    @map("order_index")
+  /// Mang id phuong an theo dung thu tu da tron, vi du ["opt_c","opt_a","opt_d","opt_b"]
+  optionOrder Json  @map("option_order")
+
+  attempt  Attempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question       @relation(fields: [questionId], references: [id])
+  answer   AttemptAnswer?
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId, orderIndex])
+  @@map("attempt_questions")
+}
+
+model AttemptAnswer {
+  id                String @id @default(cuid())
+  attemptQuestionId String @unique @map("attempt_question_id")
+
+  /// Mang id phuong an sinh vien chon. Dung mang de ho tro cau nhieu dap an.
+  selectedOptionIds Json     @map("selected_option_ids")
+  /// Danh dau xem lai
+  flagged           Boolean  @default(false)
+  answeredAt        DateTime @updatedAt @map("answered_at")
+
+  /// Chi duoc dien khi cham bai. Truoc do luon null.
+  isCorrect   Boolean? @map("is_correct")
+  earnedScore Decimal? @map("earned_score") @db.Decimal(5, 2)
+
+  attemptQuestion AttemptQuestion @relation(fields: [attemptQuestionId], references: [id], onDelete: Cascade)
+
+  @@map("attempt_answers")
+}
+
+// ============================================================
+// MODULE 5 - GIAM SAT HANH VI THI
+// ============================================================
+
+enum SignalType {
+  /// 4 tin hieu nen - ap dung ca 2 che do
+  TAB_BLUR
+  WINDOW_BLUR
+  PASTE
+  HEARTBEAT_LOST
+  /// Chi che do LAB
+  IP_OUT_OF_RANGE
+  /// Chi che do REMOTE - nhan dien chay tren may sinh vien
+  FACE_ABSENT
+  FACE_MULTIPLE
+  FACE_AWAY
+  CAMERA_BLOCKED
+}
+
+enum Severity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+/// Su kien tho, client gom theo lo 5s roi gui len.
+model ProctoringEvent {
+  id         String     @id @default(cuid())
+  attemptId  String     @map("attempt_id")
+  type       SignalType
+  occurredAt DateTime   @map("occurred_at")
+  durationMs Int?       @map("duration_ms")
+  payload    Json?
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, occurredAt])
+  @@map("proctoring_events")
+}
+
+/// Vi pham da duoc SERVER ket luan sau khi doi chieu nguong trong ho so chinh sach.
+model Violation {
+  id         String     @id @default(cuid())
+  attemptId  String     @map("attempt_id")
+  type       SignalType
+  severity   Severity   @default(WARNING)
+  occurredAt DateTime   @map("occurred_at")
+  /// So thu tu vi pham cua luot thi nay, dung de doi chieu nguong huy bai
+  sequenceNo Int        @map("sequence_no")
+  note       String?    @db.VarChar(512)
+
+  /// Anh bang chung tren MinIO/S3. Chi che do REMOTE moi co.
+  /// Tu dong xoa sau PROCTOR_EVIDENCE_RETENTION_DAYS ngay.
+  evidenceUrl       String?   @map("evidence_url") @db.VarChar(512)
+  evidenceExpiresAt DateTime? @map("evidence_expires_at")
+
+  /// Giang vien da xu ly / bo qua
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, occurredAt])
+  @@index([evidenceExpiresAt])
+  @@map("violations")
+}
+
+// ============================================================
+// MODULE 6 - KET QUA & BAO CAO
+// ============================================================
+
+/// Ket qua phan tich tung cau hoi, tinh mot lan sau khi chot ca thi
+/// roi cache lai, tranh tinh lai moi lan mo bao cao.
+model ItemAnalysis {
+  id         String @id @default(cuid())
+  examId     String @map("exam_id")
+  questionId String @map("question_id")
+
+  /// Do kho: ty le tra loi dung, 0.00 - 1.00
+  pValue Decimal @map("p_value") @db.Decimal(4, 3)
+  /// He so phan biet, -1.000 den 1.000
+  discriminationIndex Decimal @map("discrimination_index") @db.Decimal(4, 3)
+  totalAnswers        Int     @map("total_answers")
+  correctAnswers      Int     @map("correct_answers")
+  /// Ty le chon tung phuong an, dung de phat hien dap an gay nhieu bat thuong
+  optionDistribution  Json    @map("option_distribution")
+
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  exam     Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([examId, questionId])
+  @@map("item_analyses")
+}

@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment - KHONG BAO GIO commit file .env that
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Prisma
+apps/api/prisma/migrations/dev.db*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Uploads cuc bo (anh cau hoi, anh bang chung) - luu tren MinIO/S3
+uploads/
+storage/
+
+# Test
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker volume cuc bo
+docker/data/
+
+# Anh chup man hinh cua bo test giao dien
+apps/web/test/screenshots/
+
+# MediaPipe: 23MB WASM + model, tai bang `npm run setup:proctoring`
+apps/web/public/mediapipe/
+# Anh bang chung vi pham (du lieu sinh trac cua thi sinh)
+storage/
+
+# Chung chi tu ky dung khi chia se qua LAN (npm run share) - CHUA KHOA BI MAT
+certs/

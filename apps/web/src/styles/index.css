@@ -1,0 +1,87 @@
+/* ============================================================
+   Design token lấy từ DESIGN.md (Proctorial Academic Interface).
+   Tailwind v4 dùng cấu hình bằng CSS, không cần tailwind.config.js.
+   Khai báo ở đây sẽ tự sinh ra class: bg-primary, text-danger, rounded-card...
+   ============================================================ */
+@import 'tailwindcss';
+
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
+@import 'katex/dist/katex.min.css';
+
+@theme {
+  /* --- Màu thương hiệu --- */
+  --color-primary: #1e3a8a;
+  --color-secondary: #2563eb;
+
+  /* --- Chữ --- */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-subdued: #94a3b8;
+
+  /* --- Nền và viền --- */
+  --color-surface: #f8fafc;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-border-default: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+
+  /* --- Ngữ nghĩa giám sát thi --- */
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-selected-bg: #eff6ff;
+
+  /* --- Màu biểu đồ ---
+     Phổ điểm là MỘT chuỗi (số sinh viên) trên 5 khoảng có thứ tự; danh tính
+     khoảng do nhãn trục mang, nên chỉ cần hai màu ngữ nghĩa: dưới điểm đạt và
+     từ điểm đạt trở lên.
+
+     Cặp này đã chạy qua validate_palette.js và đạt cả 6 phép kiểm trên nền sáng
+     (ΔE protan 29.9, mắt thường 38.2, tương phản nền >= 3:1).
+     Khi nào làm nền tối, dùng cặp đã kiểm tương ứng: #ef4444 và #3b82f6. */
+  --color-chart-below: #dc2626;
+  --color-chart-pass: #2563eb;
+
+  /* --- Font --- */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Bo góc: hệ Soft(1) theo DESIGN.md --- */
+  --radius-default: 0.25rem;
+  --radius-card: 0.5rem;
+  --radius-dialog: 0.75rem;
+
+  /* --- Đổ bóng: viền rõ thay vì bóng nặng --- */
+  --shadow-level1: 0 1px 3px rgb(15 23 42 / 0.04);
+  --shadow-level2: 0 4px 12px -2px rgb(15 23 42 / 0.08);
+  --shadow-level3: 0 12px 32px -4px rgb(15 23 42 / 0.16);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    margin: 0;
+  }
+
+  /* Công thức toán cần dòng thoáng để mũ và chỉ số dưới không chồng nhau */
+  .question-content {
+    line-height: 1.65;
+  }
+
+  /* Ma trận LaTeX dài không được phá vỡ layout */
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.75rem 0;
+  }
+}
