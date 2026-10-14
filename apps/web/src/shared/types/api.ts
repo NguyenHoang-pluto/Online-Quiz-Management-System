@@ -109,6 +109,55 @@ export interface Question {
   options: QuestionOption[];
 }
 
+// ---------- Module 2: import preview & images ----------
+
+export interface PreviewOption {
+  label: string;
+  content: string;
+  isCorrect: boolean;
+}
+
+export interface PreviewQuestion {
+  rowIndex: number;
+  rowErrors: string[];
+  chapterId: string;
+  type: QuestionType;
+  difficulty: Difficulty;
+  content: string;
+  explanation?: string;
+  options: PreviewOption[];
+}
+
+export interface PreviewRowError {
+  row: number;
+  message: string;
+}
+
+export interface ImportPreviewResponse {
+  rows: PreviewQuestion[];
+  errors: PreviewRowError[];
+  subjectId: string;
+  source: 'EXCEL' | 'WORD_PANDOC';
+}
+
+export interface ImportJob {
+  id: string;
+  source: string;
+  status: string;
+  fileName: string;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  createdAt: string;
+}
+
+export interface QuestionImageResponse {
+  imageUrl: string;
+  width: number;
+  height: number;
+  sizeKb: number;
+}
+
 // ---------- Module 3 ----------
 
 export interface ProctoringThresholds {
