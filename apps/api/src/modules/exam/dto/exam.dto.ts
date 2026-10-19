@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -102,7 +102,8 @@ export class CreateExamDto {
   roomId?: string;
 }
 
-export class UpdateExamDto extends PartialType(CreateExamDto) {}
+/** Lớp học phần quyết định môn học và danh sách thí sinh, tạo rồi thì không đổi. */
+export class UpdateExamDto extends PartialType(OmitType(CreateExamDto, ['courseClassId'] as const)) {}
 
 export class SetMatrixDto {
   @ApiProperty({ type: [MatrixItemDto] })

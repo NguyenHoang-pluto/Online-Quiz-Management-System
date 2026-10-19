@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { MathContent } from '@/shared/components/ui/MathContent';
@@ -10,6 +10,7 @@ import {
 import type {
   Chapter, Difficulty, Exam, MatrixAvailability, ProctoringThresholds,
 } from '@/shared/types/api';
+import { ExamForm } from './ExamForm';
 
 type Difficulty3 = 'EASY' | 'MEDIUM' | 'HARD';
 const DIFFS: Difficulty3[] = ['EASY', 'MEDIUM', 'HARD'];
@@ -22,12 +23,25 @@ interface PreviewQuestion {
   options: { id: string; label: string; content: string; isCorrect: boolean }[];
 }
 
+/** Một dòng trong thẻ tóm tắt cấu hình đề. */
+function ConfigLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1.5 text-sm">
+      <span className="text-text-secondary">{label}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
 /** Module 3 — Khai báo ma trận, cấu hình giám sát, xem trước và phát hành. */
 export function ExamEditorPage() {
   const { id = '' } = useParams();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [grid, setGrid] = useState<Record<string, number>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirm, setConfirm] = useState<'close' | 'delete' | null>(null);
 
   const exam = useQuery({
     queryKey: ['exam', id],
@@ -89,7 +103,32 @@ export function ExamEditorPage() {
 
   const close = useMutation({
     mutationFn: () => api.patch(`/exams/${id}/close`),
+    onSuccess: () => {
+      setConfirm(null);
+      qc.invalidateQueries({ queryKey: ['exam', id] });
+    },
+  });
+
+  const unpublish = useMutation({
+    mutationFn: () => api.patch(`/exams/${id}/unpublish`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['exam', id] }),
+  });
+
+  const update = useMutation({
+    mutationFn: (body: unknown) => api.patch(`/exams/${id}`, body),
+    onSuccess: () => {
+      setEditOpen(false);
+      qc.invalidateQueries({ queryKey: ['exam', id] });
+      qc.invalidateQueries({ queryKey: ['availability', id] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/exams/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['exams'] });
+      navigate('/de-thi');
+    },
   });
 
   const preview = useQuery({
@@ -121,6 +160,16 @@ export function ExamEditorPage() {
             <Badge tone={e.status === 'PUBLISHED' ? 'success' : e.status === 'CLOSED' ? 'neutral' : 'warning'}>
               {LABEL.examStatus[e.status]}
             </Badge>
+            {isDraft && (
+              <>
+                <Button variant="ghost" onClick={() => setConfirm('delete')}>
+                  Xoá đề
+                </Button>
+                <Button variant="ghost" onClick={() => setEditOpen(true)}>
+                  Sửa cấu hình
+                </Button>
+              </>
+            )}
             <Button variant="ghost" onClick={() => setPreviewOpen(true)}>
               Xem trước đề mẫu
             </Button>
@@ -132,18 +181,33 @@ export function ExamEditorPage() {
                 {publish.isPending ? 'Đang phát hành...' : 'Phát hành đề thi'}
               </Button>
             ) : e.status === 'PUBLISHED' ? (
-              <Button variant="danger" onClick={() => close.mutate()} disabled={close.isPending}>
-                Đóng ca thi
-              </Button>
+              <>
+                {/* Chưa ai vào thi thì vẫn kéo về nháp để sửa được */}
+                {(e._count?.attempts ?? 0) === 0 && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => unpublish.mutate()}
+                    disabled={unpublish.isPending}
+                  >
+                    Thu hồi về nháp
+                  </Button>
+                )}
+                <Button variant="danger" onClick={() => setConfirm('close')}>
+                  Đóng ca thi
+                </Button>
+              </>
             ) : null}
           </>
         }
       />
 
-      {publish.isError && (
-        <div className="mb-4">
-          <ErrorBox error={publish.error} />
-        </div>
+      {[publish, unpublish].map(
+        (m, i) =>
+          m.isError && (
+            <div key={i} className="mb-4">
+              <ErrorBox error={m.error} />
+            </div>
+          ),
       )}
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -266,109 +330,140 @@ export function ExamEditorPage() {
           )}
         </Card>
 
-        <Card className="h-fit">
-          <p className="border-b border-border-default px-4 py-3 text-sm font-semibold">
-            Chính sách giám sát hành vi
-          </p>
-          <form
-            className="space-y-3 p-4"
-            onSubmit={(ev) => {
-              ev.preventDefault();
-              const f = new FormData(ev.currentTarget);
-              savePolicy.mutate({
-                thresholds: {
-                  blurMs: Number(f.get('blurMs')),
-                  heartbeatTimeoutS: Number(f.get('heartbeatTimeoutS')),
-                  faceAbsentMs: Number(f.get('faceAbsentMs')),
-                  maxViolations: Number(f.get('maxViolations')),
-                },
-                actionOnExceed: f.get('actionOnExceed'),
-              });
-            }}
-          >
-            <div className="rounded-default bg-selected-bg px-3 py-2 text-xs text-secondary">
-              Hồ sơ đang áp dụng: <strong>{e.policy?.name ?? '—'}</strong>
+        <div className="h-fit space-y-5">
+          <Card>
+            <div className="flex items-center justify-between border-b border-border-default px-4 py-3">
+              <p className="text-sm font-semibold">Cấu hình đề thi</p>
+              {isDraft && (
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  className="text-xs font-medium text-secondary hover:underline"
+                >
+                  Sửa
+                </button>
+              )}
             </div>
+            <div className="divide-y divide-border-default px-4 py-2">
+              <ConfigLine label="Trộn thứ tự câu hỏi" value={e.shuffleQuestions ? 'Có' : 'Không'} />
+              <ConfigLine label="Trộn thứ tự phương án" value={e.shuffleOptions ? 'Có' : 'Không'} />
+              <ConfigLine label="Hiển thị kết quả" value={LABEL.resultDisplay[e.resultDisplay]} />
+              <ConfigLine
+                label="Câu nhiều đáp án"
+                value={e.strictMultipleChoice ? 'Đúng hết mới có điểm' : 'Tính điểm từng phần'}
+              />
+            </div>
+          </Card>
 
-            <Input
-              name="blurMs"
-              label="Rời màn hình quá (mili giây) thì tính vi phạm"
-              type="number"
-              min={0}
-              step={500}
-              defaultValue={thresholds?.blurMs ?? 3000}
-              disabled={!isDraft}
-            />
-            <Input
-              name="heartbeatTimeoutS"
-              label="Mất tín hiệu quá (giây) thì coi là mất kết nối"
-              type="number"
-              min={5}
-              defaultValue={thresholds?.heartbeatTimeoutS ?? 30}
-              disabled={!isDraft}
-              hint="Thi tại nhà nên để rộng, mạng gia đình hay chập chờn"
-            />
-            {e.proctoringMode === 'REMOTE' && (
+          <Card>
+            <p className="border-b border-border-default px-4 py-3 text-sm font-semibold">
+              Chính sách giám sát hành vi
+            </p>
+            <form
+              // Dựng lại form khi đổi hồ sơ, để các ô nhận giá trị mặc định mới
+              key={`${e.policy?.id}:${e.proctoringMode}`}
+              className="space-y-3 p-4"
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                const f = new FormData(ev.currentTarget);
+                savePolicy.mutate({
+                  thresholds: {
+                    blurMs: Number(f.get('blurMs')),
+                    heartbeatTimeoutS: Number(f.get('heartbeatTimeoutS')),
+                    faceAbsentMs: Number(f.get('faceAbsentMs')),
+                    maxViolations: Number(f.get('maxViolations')),
+                  },
+                  actionOnExceed: f.get('actionOnExceed'),
+                });
+              }}
+            >
+              <div className="rounded-default bg-selected-bg px-3 py-2 text-xs text-secondary">
+                Hồ sơ đang áp dụng: <strong>{e.policy?.name ?? '—'}</strong>
+              </div>
+
               <Input
-                name="faceAbsentMs"
-                label="Vắng mặt trước camera quá (mili giây)"
+                name="blurMs"
+                label="Rời màn hình quá (mili giây) thì tính vi phạm"
                 type="number"
                 min={0}
-                step={1000}
-                defaultValue={thresholds?.faceAbsentMs ?? 10000}
+                step={500}
+                defaultValue={thresholds?.blurMs ?? 3000}
                 disabled={!isDraft}
               />
-            )}
-            {e.proctoringMode === 'LAB' && (
-              <input type="hidden" name="faceAbsentMs" value={thresholds?.faceAbsentMs ?? 0} />
-            )}
-            <Input
-              name="maxViolations"
-              label="Số lần vi phạm tối đa"
-              type="number"
-              min={1}
-              defaultValue={thresholds?.maxViolations ?? 3}
-              disabled={!isDraft}
-            />
-            <Select
-              name="actionOnExceed"
-              label="Xử lý khi vượt ngưỡng"
-              defaultValue={e.policy?.actionOnExceed ?? 'FLAG'}
-              disabled={!isDraft}
-            >
-              <option value="WARN">Chỉ cảnh báo</option>
-              <option value="FLAG">Gắn cờ để giảng viên xét duyệt</option>
-              <option value="AUTO_SUBMIT">Tự động hủy và nộp bài</option>
-            </Select>
+              <Input
+                name="heartbeatTimeoutS"
+                label="Mất tín hiệu quá (giây) thì coi là mất kết nối"
+                type="number"
+                min={5}
+                defaultValue={thresholds?.heartbeatTimeoutS ?? 30}
+                disabled={!isDraft}
+                hint="Thi tại nhà nên để rộng, mạng gia đình hay chập chờn"
+              />
+              {e.proctoringMode === 'REMOTE' && (
+                <Input
+                  name="faceAbsentMs"
+                  label="Vắng mặt trước camera quá (mili giây)"
+                  type="number"
+                  min={0}
+                  step={1000}
+                  defaultValue={thresholds?.faceAbsentMs ?? 10000}
+                  disabled={!isDraft}
+                />
+              )}
+              {e.proctoringMode === 'LAB' && (
+                <input type="hidden" name="faceAbsentMs" value={thresholds?.faceAbsentMs ?? 0} />
+              )}
+              <Input
+                name="maxViolations"
+                label="Số lần vi phạm tối đa"
+                type="number"
+                min={1}
+                defaultValue={thresholds?.maxViolations ?? 3}
+                disabled={!isDraft}
+              />
+              <Select
+                name="actionOnExceed"
+                label="Xử lý khi vượt ngưỡng"
+                defaultValue={e.policy?.actionOnExceed ?? 'FLAG'}
+                disabled={!isDraft}
+              >
+                <option value="WARN">Chỉ cảnh báo</option>
+                <option value="FLAG">Gắn cờ để giảng viên xét duyệt</option>
+                <option value="AUTO_SUBMIT">Tự động hủy và nộp bài</option>
+              </Select>
 
-            {e.proctoringMode === 'LAB' && e.room && (
-              <div className="rounded-default border border-border-default p-3">
-                <p className="text-xs font-medium text-text-secondary">
-                  Dải IP phòng {e.room.code}
-                </p>
-                <ul className="mt-1 space-y-0.5">
-                  {e.room.ipRules.map((r) => (
-                    <li key={r.id} className="font-mono text-xs">
-                      {r.cidr}
-                    </li>
-                  ))}
-                  {e.room.ipRules.length === 0 && (
-                    <li className="text-xs text-danger">
-                      Chưa khai báo dải IP — mọi máy đều vào thi được
-                    </li>
-                  )}
-                </ul>
-              </div>
-            )}
+              {e.proctoringMode === 'LAB' && e.room && (
+                <div className="rounded-default border border-border-default p-3">
+                  <p className="text-xs font-medium text-text-secondary">
+                    Dải IP phòng {e.room.code}
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {e.room.ipRules.map((r) => (
+                      <li key={r.id} className="font-mono text-xs">
+                        {r.cidr}
+                      </li>
+                    ))}
+                    {e.room.ipRules.length === 0 && (
+                      <li className="text-xs text-danger">
+                        Chưa khai báo dải IP — mọi máy đều vào thi được
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
 
-            {savePolicy.isError && <ErrorBox error={savePolicy.error} />}
-            {isDraft && (
-              <Button type="submit" disabled={savePolicy.isPending} className="w-full">
-                {savePolicy.isPending ? 'Đang lưu...' : 'Lưu chính sách'}
-              </Button>
-            )}
-          </form>
-        </Card>
+              {savePolicy.isError && <ErrorBox error={savePolicy.error} />}
+              {isDraft && (
+                <Button type="submit" disabled={savePolicy.isPending} className="w-full">
+                  {savePolicy.isPending ? 'Đang lưu...' : 'Lưu chính sách'}
+                </Button>
+              )}
+              {savePolicy.isSuccess && !savePolicy.isPending && (
+                <p className="text-center text-xs text-success">Đã lưu chính sách giám sát</p>
+              )}
+            </form>
+          </Card>
+        </div>
       </div>
 
       {!isDraft && (
@@ -381,6 +476,58 @@ export function ExamEditorPage() {
           </Link>
         </div>
       )}
+
+      <Modal open={editOpen} title="Sửa cấu hình đề thi" onClose={() => setEditOpen(false)} wide>
+        <ExamForm
+          exam={e}
+          pending={update.isPending}
+          error={update.isError ? update.error : null}
+          submitLabel="Lưu cấu hình"
+          onSubmit={(body) => update.mutate(body)}
+        />
+      </Modal>
+
+      <Modal
+        open={confirm !== null}
+        title={confirm === 'close' ? 'Đóng ca thi?' : 'Xoá đề thi?'}
+        onClose={() => setConfirm(null)}
+      >
+        <div className="space-y-4">
+          {confirm === 'close' ? (
+            <p className="text-sm">
+              Sau khi đóng, sinh viên không vào thi được nữa.
+              {e.inProgressCount > 0 && (
+                <>
+                  {' '}
+                  <strong className="text-danger">
+                    {e.inProgressCount} sinh viên đang làm bài
+                  </strong>{' '}
+                  sẽ bị nộp bài tự động và chấm điểm ngay với các đáp án đã chọn.
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="text-sm">
+              Xoá vĩnh viễn đề <strong>{e.title}</strong> cùng ma trận đã khai báo. Thao tác này
+              không hoàn tác được.
+            </p>
+          )}
+          {confirm === 'close' && close.isError && <ErrorBox error={close.error} />}
+          {confirm === 'delete' && remove.isError && <ErrorBox error={remove.error} />}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirm(null)}>
+              Huỷ
+            </Button>
+            <Button
+              variant="danger"
+              disabled={close.isPending || remove.isPending}
+              onClick={() => (confirm === 'close' ? close.mutate() : remove.mutate())}
+            >
+              {confirm === 'close' ? 'Đóng ca thi' : 'Xoá đề'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={previewOpen}
