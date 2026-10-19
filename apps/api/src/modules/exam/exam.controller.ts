@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { ExamService } from './exam.service';
@@ -36,6 +36,12 @@ export class ExamController {
     return this.exams.update(id, dto, user);
   }
 
+  @Delete(':id')
+  @ApiOperation({ summary: 'Xoá đề thi còn là bản nháp (chức năng 3.1)' })
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.exams.remove(id, user);
+  }
+
   @Put(':id/matrix')
   @ApiOperation({ summary: 'Khai báo ma trận đề (chức năng 3.2)' })
   setMatrix(@Param('id') id: string, @Body() dto: SetMatrixDto, @CurrentUser() user: AuthUser) {
@@ -44,8 +50,8 @@ export class ExamController {
 
   @Get(':id/matrix/availability')
   @ApiOperation({ summary: 'Đối chiếu ma trận với số câu thực có trong ngân hàng' })
-  availability(@Param('id') id: string) {
-    return this.exams.checkMatrixAvailability(id);
+  availability(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.exams.availability(id, user);
   }
 
   @Get(':id/preview')
@@ -68,6 +74,12 @@ export class ExamController {
   @ApiOperation({ summary: 'Phát hành đề thi (chức năng 3.6)' })
   publish(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.exams.publish(id, user);
+  }
+
+  @Patch(':id/unpublish')
+  @ApiOperation({ summary: 'Thu hồi đề về bản nháp khi chưa ai vào thi (chức năng 3.6)' })
+  unpublish(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.exams.unpublish(id, user);
   }
 
   @Patch(':id/close')

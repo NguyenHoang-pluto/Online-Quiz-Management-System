@@ -701,6 +701,117 @@ async function main() {
   ok('Ca thi đã đóng không vào được nữa', afterClose.status === 400);
 
   // ============================================================
+  section('10. Module 3 — Cấu hình và vòng đời đề thi');
+  // ============================================================
+
+  const cfgExam = await api('POST', '/exams', {
+    token: gvToken,
+    body: { ...examBody, title: `Vòng đời ${tag}` },
+  });
+  const cfgId = cfgExam.data.id;
+
+  const cfg = await api('PATCH', `/exams/${cfgId}`, {
+    token: gvToken,
+    body: {
+      shuffleQuestions: false,
+      shuffleOptions: false,
+      resultDisplay: 'NONE',
+      strictMultipleChoice: false,
+      proctoringMode: 'REMOTE',
+    },
+  });
+  ok('Lưu cấu hình trộn đề và hiển thị kết quả',
+    cfg.data?.shuffleQuestions === false && cfg.data?.shuffleOptions === false &&
+      cfg.data?.resultDisplay === 'NONE' && cfg.data?.strictMultipleChoice === false,
+    JSON.stringify(cfg.data?.message ?? ''));
+
+  const moveClass = await api('PATCH', `/exams/${cfgId}`, {
+    token: gvToken,
+    body: { courseClassId: courseClass.data.id },
+  });
+  ok('Không đổi được lớp học phần sau khi tạo', moveClass.status === 400);
+
+  const pol1 = await api('PATCH', `/exams/${cfgId}/policy`, {
+    token: gvToken,
+    body: { actionOnExceed: 'WARN' },
+  });
+  const pol2 = await api('PATCH', `/exams/${cfgId}/policy`, {
+    token: gvToken,
+    body: { thresholds: { blurMs: 4000, heartbeatTimeoutS: 60, faceAbsentMs: 8000, maxViolations: 7 } },
+  });
+  ok('Chỉnh ngưỡng tách ra hồ sơ riêng', pol1.data?.policy?.isSystem === false);
+  ok('Lưu ngưỡng lần hai sửa đúng hồ sơ cũ, không tạo thêm',
+    pol2.data?.policyId === pol1.data?.policyId);
+  ok('Lưu ngưỡng lần hai vẫn giữ cách xử lý đã chọn',
+    pol2.data?.policy?.actionOnExceed === 'WARN' &&
+      pol2.data?.policy?.thresholds?.maxViolations === 7);
+
+  const keepPolicy = await api('PATCH', `/exams/${cfgId}`, {
+    token: gvToken,
+    body: { title: `Vòng đời ${tag} (sửa)`, proctoringMode: 'REMOTE' },
+  });
+  ok('Sửa đề giữ nguyên hồ sơ ngưỡng riêng', keepPolicy.data?.policyId === pol1.data?.policyId);
+
+  await api('PUT', `/exams/${cfgId}/matrix`, {
+    token: gvToken,
+    body: {
+      items: [
+        { chapterId: chapters[0].id, difficulty: 'EASY', quantity: 2 },
+        { chapterId: chapters[1].id, difficulty: 'MEDIUM', quantity: 2 },
+      ],
+    },
+  });
+
+  const noShuffle = await api('GET', `/exams/${cfgId}/preview`, { token: gvToken });
+  const diffOrder = noShuffle.data?.map((q) => q.difficulty).join(',');
+  ok('Tắt trộn câu: đề mẫu giữ thứ tự dòng ma trận', diffOrder === 'EASY,EASY,MEDIUM,MEDIUM',
+    diffOrder);
+
+  const pub = await api('PATCH', `/exams/${cfgId}/publish`, { token: gvToken });
+  ok('Phát hành đề cấu hình', pub.data?.status === 'PUBLISHED');
+
+  const delPublished = await api('DELETE', `/exams/${cfgId}`, { token: gvToken });
+  ok('Không xoá được đề đã phát hành', delPublished.status === 400);
+
+  const unpub = await api('PATCH', `/exams/${cfgId}/unpublish`, { token: gvToken });
+  ok('Thu hồi về nháp khi chưa ai vào thi', unpub.data?.status === 'DRAFT',
+    JSON.stringify(unpub.data?.message ?? ''));
+  await api('PATCH', `/exams/${cfgId}/publish`, { token: gvToken });
+
+  const cfgStart = await api('POST', `/attempts/exams/${cfgId}/start`, {
+    token: svTokens[1],
+    body: { acceptRules: true, acceptBiometric: true },
+  });
+  ok('Sinh viên vào đề cấu hình', cfgStart.status === 200 || cfgStart.status === 201,
+    JSON.stringify(cfgStart.data?.message ?? ''));
+  for (const q of cfgStart.data?.questions ?? []) {
+    await api('POST', `/attempts/${cfgStart.data.attemptId}/answers`, {
+      token: svTokens[1],
+      body: { questionId: q.questionId, selectedOptionIds: correctMap.get(q.questionId) },
+    });
+  }
+
+  const unpubLate = await api('PATCH', `/exams/${cfgId}/unpublish`, { token: gvToken });
+  ok('Đã có lượt thi thì không thu hồi được', unpubLate.status === 400);
+
+  const cfgClose = await api('PATCH', `/exams/${cfgId}/close`, { token: gvToken });
+  ok('Đóng ca thi báo số bài bị nộp tự động', cfgClose.data?.autoSubmittedCount === 1,
+    JSON.stringify(cfgClose.data));
+
+  const cfgBook = await api('GET', `/results/exams/${cfgId}/gradebook`, { token: gvToken });
+  const closedRow = cfgBook.data?.rows?.find((r) => r.status === 'AUTO_SUBMITTED');
+  ok('Bài bị đóng ngang vẫn được chấm điểm', closedRow?.score === 10,
+    JSON.stringify(closedRow));
+
+  const draft = await api('POST', '/exams', {
+    token: gvToken,
+    body: { ...examBody, title: `Nháp để xoá ${tag}` },
+  });
+  const del = await api('DELETE', `/exams/${draft.data.id}`, { token: gvToken });
+  const gone = await api('GET', `/exams/${draft.data.id}`, { token: gvToken });
+  ok('Xoá được đề nháp', del.status === 200 && gone.status === 404);
+
+  // ============================================================
   console.log(`\n${'━'.repeat(66)}`);
   console.log(`KẾT QUẢ: ${passed} đạt, ${failed} lỗi trên tổng ${passed + failed} phép thử`);
   if (failed > 0) {

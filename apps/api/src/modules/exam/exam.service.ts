@@ -7,6 +7,7 @@ import {
 } from '@eduexam/shared';
 
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { ResultService } from '../result/result.service';
 import { PaginationDto, paginate } from '../../common/dto/pagination.dto';
 import { shuffle, sample } from '../../common/utils/shuffle';
 import { isIpInCidr } from '../../common/utils/ip';
@@ -20,13 +21,18 @@ export interface GeneratedQuestion {
   optionOrder: string[];
 }
 
+const DIFFICULTY_ORDER = { EASY: 0, MEDIUM: 1, HARD: 2 } as const;
+
 /**
  * MODULE 3 — Đề thi và ma trận đề.
  * Phụ trách: Nguyễn Huy Hoàng
  */
 @Injectable()
 export class ExamService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly results: ResultService,
+  ) {}
 
   /**
    * Giai đoạn thực tế của đề thi, tính từ giờ mở/đóng.
@@ -223,7 +229,11 @@ export class ExamService {
       throw new BadRequestException('Thi tại phòng máy phải chọn phòng');
     }
 
-    return this.prisma.exam.update({
+    // Form sửa đề luôn gửi kèm hình thức thi. Chỉ khi hình thức thật sự đổi
+    // mới quay về hồ sơ chuẩn, nếu không sẽ xoá mất ngưỡng riêng đã cấu hình.
+    const modeChanged = mode !== exam.proctoringMode;
+
+    const updated = await this.prisma.exam.update({
       where: { id },
       data: {
         title: dto.title,
@@ -237,11 +247,40 @@ export class ExamService {
         strictMultipleChoice: dto.strictMultipleChoice,
         proctoringMode: dto.proctoringMode,
         // Đổi hình thức thi thì phải đổi luôn hồ sơ ngưỡng tương ứng
-        policyId: dto.proctoringMode ? await this.defaultPolicyId(mode) : dto.policyId,
+        policyId: modeChanged ? await this.defaultPolicyId(mode) : dto.policyId,
         roomId: mode === 'LAB' ? roomId : null,
       },
       include: { policy: true, room: true },
     });
+    if (modeChanged) await this.dropOrphanPolicy(exam.policyId);
+    return updated;
+  }
+
+  /**
+   * Xoá đề còn là bản nháp. Bản nháp chưa từng mở cho sinh viên nên không có
+   * lượt thi nào bị mất theo.
+   */
+  async remove(id: string, user: AuthUser) {
+    const exam = await this.mustBeDraft(id, user);
+    if (exam._count.attempts > 0) {
+      throw new BadRequestException('Đề thi đã có lượt làm bài, không xoá được');
+    }
+
+    await this.prisma.exam.delete({ where: { id } });
+    await this.dropOrphanPolicy(exam.policyId);
+    return { id, deleted: true };
+  }
+
+  /** Hồ sơ ngưỡng riêng của một đề thì xoá theo khi không còn đề nào dùng. */
+  private async dropOrphanPolicy(policyId: string | null) {
+    if (!policyId) return;
+    const policy = await this.prisma.proctoringPolicy.findUnique({
+      where: { id: policyId },
+      include: { _count: { select: { exams: true } } },
+    });
+    if (policy && !policy.isSystem && policy._count.exams === 0) {
+      await this.prisma.proctoringPolicy.delete({ where: { id: policyId } });
+    }
   }
 
   // ==================== MA TRẬN ĐỀ ====================
@@ -268,6 +307,12 @@ export class ExamService {
       }),
     ]);
 
+    return this.checkMatrixAvailability(id);
+  }
+
+  /** Đối chiếu ma trận cho giảng viên — chỉ xem được đề của lớp mình. */
+  async availability(id: string, user: AuthUser) {
+    await this.findOne(id, user);
     return this.checkMatrixAvailability(id);
   }
 
@@ -332,16 +377,24 @@ export class ExamService {
   async generatePaper(examId: string): Promise<GeneratedQuestion[]> {
     const exam = await this.prisma.exam.findUnique({
       where: { id: examId },
-      include: { matrixItems: true },
+      include: { matrixItems: { include: { chapter: { select: { orderIndex: true } } } } },
     });
     if (!exam) throw new NotFoundException('Không tìm thấy đề thi');
     if (exam.matrixItems.length === 0) {
       throw new BadRequestException('Đề thi chưa khai báo ma trận');
     }
 
+    // Khi tắt trộn câu, đề xếp theo chương rồi theo mức độ từ dễ đến khó —
+    // không phụ thuộc vào thứ tự CSDL tình cờ trả về
+    const items = [...exam.matrixItems].sort(
+      (a, b) =>
+        (a.chapter?.orderIndex ?? 0) - (b.chapter?.orderIndex ?? 0) ||
+        DIFFICULTY_ORDER[a.difficulty] - DIFFICULTY_ORDER[b.difficulty],
+    );
+
     const picked: { id: string; options: { id: string }[] }[] = [];
 
-    for (const item of exam.matrixItems) {
+    for (const item of items) {
       const pool = await this.prisma.question.findMany({
         where: {
           chapterId: item.chapterId,
@@ -419,6 +472,11 @@ export class ExamService {
     if (exam.status !== 'DRAFT') {
       throw new BadRequestException('Chỉ phát hành được đề đang ở trạng thái nháp');
     }
+    if (exam.closeAt <= new Date()) {
+      throw new BadRequestException(
+        'Khung giờ thi đã qua, hãy sửa lại thời điểm mở/đóng trước khi phát hành',
+      );
+    }
 
     const check = await this.checkMatrixAvailability(id);
     if (!check.canPublish) {
@@ -445,19 +503,54 @@ export class ExamService {
     });
   }
 
+  /**
+   * Đã phát hành → Nháp, để sửa sai sót. Chỉ cho phép khi chưa sinh viên nào
+   * vào thi: đề đã sinh cho sinh viên là ảnh chụp bất biến, sửa ma trận sau
+   * đó sẽ khiến các bài làm không còn cùng một chuẩn.
+   */
+  async unpublish(id: string, user: AuthUser) {
+    const exam = await this.findOne(id, user);
+    if (exam.status !== 'PUBLISHED') {
+      throw new BadRequestException('Chỉ thu hồi được đề đang phát hành');
+    }
+    if (exam._count.attempts > 0) {
+      throw new BadRequestException(
+        `Đã có ${exam._count.attempts} lượt làm bài, không thu hồi về bản nháp được`,
+      );
+    }
+
+    return this.prisma.exam.update({
+      where: { id },
+      data: { status: 'DRAFT' },
+      include: { policy: true, room: true },
+    });
+  }
+
+  /** Đã phát hành → Đã đóng. Bài còn dở được chốt và chấm luôn. */
   async close(id: string, user: AuthUser) {
     const exam = await this.findOne(id, user);
     if (exam.status !== 'PUBLISHED') {
       throw new BadRequestException('Chỉ đóng được đề đang phát hành');
     }
 
-    // Bài nào còn dở mà hết giờ thì chốt luôn thành tự động nộp
-    await this.prisma.attempt.updateMany({
+    const running = await this.prisma.attempt.findMany({
       where: { examId: id, status: 'IN_PROGRESS' },
-      data: { status: 'AUTO_SUBMITTED', submittedAt: new Date() },
+      select: { id: true },
     });
 
-    return this.prisma.exam.update({ where: { id }, data: { status: 'CLOSED' } });
+    // Đóng phòng trước để không ai bắt đầu thêm lượt mới trong lúc đang chốt bài
+    const closed = await this.prisma.exam.update({ where: { id }, data: { status: 'CLOSED' } });
+
+    if (running.length > 0) {
+      await this.prisma.attempt.updateMany({
+        where: { id: { in: running.map((a) => a.id) }, status: 'IN_PROGRESS' },
+        data: { status: 'AUTO_SUBMITTED', submittedAt: new Date() },
+      });
+      // Chỉ đổi trạng thái mà không chấm thì sinh viên bị đóng ngang sẽ không có điểm
+      for (const a of running) await this.results.gradeAttempt(a.id);
+    }
+
+    return { ...closed, autoSubmittedCount: running.length };
   }
 
   // ==================== CHÍNH SÁCH GIÁM SÁT ====================
@@ -466,28 +559,47 @@ export class ExamService {
   async updatePolicy(id: string, dto: UpdatePolicyDto, user: AuthUser) {
     const exam = await this.mustBeDraft(id, user);
     const mode = dto.proctoringMode ?? exam.proctoringMode;
+    if (mode === 'LAB' && !exam.roomId) {
+      throw new BadRequestException('Thi tại phòng máy phải chọn phòng trước');
+    }
+
+    // Kiểm tra hết dữ liệu vào trước khi ghi bất cứ thứ gì
+    for (const cidr of dto.allowedCidrs ?? []) {
+      if (!isIpInCidr(cidr.split('/')[0], cidr)) {
+        throw new BadRequestException(`Dải IP không hợp lệ: ${cidr}`);
+      }
+    }
 
     const base: ProctoringPolicyConfig =
       mode === 'LAB' ? DEFAULT_LAB_POLICY : DEFAULT_REMOTE_POLICY;
+    // Giữ ngưỡng riêng đã chỉnh trước đó nếu vẫn cùng hình thức thi
+    const current =
+      exam.policy && exam.policy.mode === mode
+        ? (exam.policy.thresholds as unknown as ProctoringPolicyConfig['thresholds'])
+        : base.thresholds;
 
-    // Ngưỡng riêng thì tạo hồ sơ riêng cho đề này, không sửa hồ sơ chuẩn
-    const policy = await this.prisma.proctoringPolicy.create({
-      data: {
-        name: `${exam.title} — ${mode === 'LAB' ? 'phòng máy' : 'từ xa'}`,
-        mode,
-        isSystem: false,
-        signalsEnabled: base.signalsEnabled as any,
-        thresholds: { ...base.thresholds, ...(dto.thresholds ?? {}) } as any,
-        actionOnExceed: dto.actionOnExceed ?? base.actionOnExceed,
-      },
-    });
+    const data = {
+      name: `${exam.title} — ${mode === 'LAB' ? 'phòng máy' : 'từ xa'}`,
+      mode,
+      isSystem: false,
+      signalsEnabled: base.signalsEnabled as any,
+      thresholds: { ...base.thresholds, ...current, ...(dto.thresholds ?? {}) } as any,
+      actionOnExceed:
+        dto.actionOnExceed ??
+        (exam.policy?.mode === mode ? exam.policy.actionOnExceed : base.actionOnExceed),
+    };
 
-    if (dto.allowedCidrs && exam.roomId) {
-      for (const cidr of dto.allowedCidrs) {
-        if (!isIpInCidr(cidr.split('/')[0], cidr)) {
-          throw new BadRequestException(`Dải IP không hợp lệ: ${cidr}`);
-        }
-      }
+    // Không bao giờ sửa hồ sơ chuẩn của hệ thống: lần đầu chỉnh thì tách ra
+    // hồ sơ riêng cho đề này, những lần sau sửa thẳng vào hồ sơ riêng đó
+    let own = exam.policy && !exam.policy.isSystem ? exam.policy : null;
+    if (own && (await this.prisma.exam.count({ where: { policyId: own.id } })) > 1) {
+      own = null; // hồ sơ đang dùng chung với đề khác (gán qua policyId), không sửa đè
+    }
+    const policy = own
+      ? await this.prisma.proctoringPolicy.update({ where: { id: own.id }, data })
+      : await this.prisma.proctoringPolicy.create({ data });
+
+    if (dto.allowedCidrs && mode === 'LAB' && exam.roomId) {
       await this.prisma.$transaction([
         this.prisma.roomIpRule.deleteMany({ where: { roomId: exam.roomId } }),
         this.prisma.roomIpRule.createMany({
@@ -498,7 +610,11 @@ export class ExamService {
 
     return this.prisma.exam.update({
       where: { id },
-      data: { proctoringMode: mode, policyId: policy.id },
+      data: {
+        proctoringMode: mode,
+        policyId: policy.id,
+        roomId: mode === 'LAB' ? exam.roomId : null,
+      },
       include: { policy: true, room: { include: { ipRules: true } } },
     });
   }
