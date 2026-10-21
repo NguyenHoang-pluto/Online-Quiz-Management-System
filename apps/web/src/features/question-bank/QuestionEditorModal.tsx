@@ -61,11 +61,11 @@ export function QuestionEditorModal({
     mutationFn: (body: unknown) =>
       effectiveId ? api.patch(`/questions/${effectiveId}`, body) : api.post('/questions', body),
     onSuccess: (res) => {
+      // Tao xong van giu modal de gan anh; bao cha refetch ngay de dong bang cach
+      // nao cung thay cau hoi moi (nut Xong chi goi onClose).
+      onSaved();
       if (!effectiveId) setSavedId(res.data.id as string);
-      else {
-        onSaved();
-        onClose();
-      }
+      else onClose();
     },
   });
 

@@ -82,7 +82,7 @@ export function QuestionImportPage() {
               <p className="mb-1 text-xs font-medium text-text-secondary">File import</p>
               <input
                 type="file"
-                accept={imp.source === 'excel' ? '.xlsx,.xls' : '.docx'}
+                accept={imp.source === 'excel' ? '.xlsx' : '.docx'}
                 onChange={(e) => imp.setFile(e.target.files?.[0] ?? null)}
                 className="text-sm"
               />

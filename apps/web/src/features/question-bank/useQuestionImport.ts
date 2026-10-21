@@ -6,7 +6,7 @@ export type ImportSource = 'excel' | 'word';
 export type ImportStep = 'upload' | 'preview' | 'done';
 
 /** Kiem lai 1 dong sau khi sua tay — mirror rule BE de bao loi som. */
-function revalidateRow(row: PreviewQuestion): string[] {
+export function revalidateRow(row: PreviewQuestion): string[] {
   const errs: string[] = [];
   if (!row.content.trim()) errs.push('Thiếu nội dung câu hỏi');
   const filled = row.options.filter((o) => o.content.trim() !== '');
@@ -17,6 +17,8 @@ function revalidateRow(row: PreviewQuestion): string[] {
     errs.push('Câu 1 đáp án chỉ được có đúng 1 phương án đúng');
   } else if (row.type === 'TRUE_FALSE' && (filled.length !== 2 || correct !== 1)) {
     errs.push('Câu đúng/sai phải có đúng 2 phương án với 1 đáp án đúng');
+  } else if (row.type === 'MULTIPLE_CHOICE' && correct === filled.length) {
+    errs.push('Câu nhiều đáp án không thể có tất cả đều đúng');
   }
   return errs;
 }

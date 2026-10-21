@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 
 import { QuestionBankService } from './question-bank.service';
@@ -110,6 +110,15 @@ describe('QuestionBankService preview', () => {
     ]);
     expect(preview.errors).toEqual([]);
     expect(prisma.question.create).not.toHaveBeenCalled();
+  });
+
+  test('previewExcel turns an unreadable file into a 400, not a 500', async () => {
+    const { service, prisma } = makeService();
+    prisma.chapter.findMany.mockResolvedValue([{ id: 'ch1', code: 'CAL2-C03' }]);
+
+    await expect(service.previewExcel(Buffer.from('not an xlsx'), 's1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   test('previewWord maps every question to the chosen chapter and its source line', async () => {

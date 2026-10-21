@@ -259,7 +259,17 @@ export class QuestionBankService {
     }
 
     const chapterByCode = new Map(chapters.map((c) => [c.code.toUpperCase(), c]));
-    const { rows, errors } = await parseQuestionWorkbook(buffer, chapterByCode);
+
+    let parsed: Awaited<ReturnType<typeof parseQuestionWorkbook>>;
+    try {
+      parsed = await parseQuestionWorkbook(buffer, chapterByCode);
+    } catch {
+      // .xls cu hoac file hong: ExcelJS nem loi tho -> 500 neu khong bat.
+      throw new BadRequestException(
+        'File Excel không hợp lệ. Hãy lưu lại dưới định dạng .xlsx rồi thử lại.',
+      );
+    }
+    const { rows, errors } = parsed;
 
     return {
       source: 'EXCEL',
