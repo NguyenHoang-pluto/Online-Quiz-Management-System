@@ -28,6 +28,7 @@ export function LiveMonitorPage() {
   const [broadcastOpen, setBroadcastOpen] = useState(false);
   const [live, setLive] = useState(false);
 
+  // #region 5.7 — Màn hình theo dõi trực tiếp: Query chu kỳ 5 giây & WebSocket Realtime
   const monitor = useQuery({
     queryKey: ['monitor', examId],
     queryFn: async () => (await api.get<LiveMonitor>(`/proctoring/exams/${examId}/monitor`)).data,
@@ -47,18 +48,23 @@ export function LiveMonitorPage() {
       socket.close();
     };
   }, [examId, qc]);
+  // #endregion
 
+  // #region 5.8 — Dữ liệu dòng thời gian vi phạm (Timeline Query)
   const timeline = useQuery({
     queryKey: ['timeline', timelineOf?.attemptId],
     enabled: !!timelineOf,
     queryFn: async () =>
       (await api.get<Timeline>(`/proctoring/attempts/${timelineOf!.attemptId}/timeline`)).data,
   });
+  // #endregion
 
+  // #region 5.5 — Gửi cảnh báo chung từ giám thị tới phòng thi (Broadcast Mutation)
   const broadcast = useMutation({
     mutationFn: (message: string) =>
       api.post(`/proctoring/exams/${examId}/broadcast`, { message }),
   });
+  // #endregion
 
   if (monitor.isLoading) return <Loading />;
   if (monitor.isError) return <ErrorBox error={monitor.error} />;
@@ -89,6 +95,7 @@ export function LiveMonitorPage() {
         }
       />
 
+      {/* #region 5.7 — Thống kê tổng quan ca thi (Stat Cards) */}
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Sĩ số ca thi" value={m.stats.enrolled} hint={`${m.stats.started} đã vào thi`} />
         <Stat label="Đang trực tuyến" value={m.stats.online} tone="success" hint="còn tín hiệu" />
@@ -101,7 +108,9 @@ export function LiveMonitorPage() {
         />
         <Stat label="Mất kết nối" value={m.stats.disconnected} tone="danger" hint="cần kiểm tra" />
       </div>
+      {/* #endregion */}
 
+      {/* #region 5.8 — Bộ lọc theo trạng thái vi phạm & Tìm kiếm thí sinh */}
       <Card className="mb-4 p-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <Input
@@ -133,7 +142,9 @@ export function LiveMonitorPage() {
           </div>
         </div>
       </Card>
+      {/* #endregion */}
 
+      {/* #region 5.7 — Bảng danh sách thí sinh và trạng thái trực tiếp (Live Monitor Table) */}
       <Card>
         {rows.length === 0 ? (
           <Empty message="Không có thí sinh nào khớp bộ lọc" />
@@ -200,7 +211,9 @@ export function LiveMonitorPage() {
           </Table>
         )}
       </Card>
+      {/* #endregion */}
 
+      {/* #region 5.8 — Dòng thời gian vi phạm & Lịch sử chi tiết (Timeline Modal & Evidence) */}
       <Modal
         open={!!timelineOf}
         title={`Nhật ký giám sát — ${timelineOf?.studentName ?? ''}`}
@@ -287,7 +300,9 @@ export function LiveMonitorPage() {
           </div>
         )}
       </Modal>
+      {/* #endregion */}
 
+      {/* #region 5.5 — Hộp thoại gửi cảnh báo toàn phòng thi (Broadcast Warning Modal) */}
       <Modal
         open={broadcastOpen}
         title="Gửi cảnh báo tới toàn bộ thí sinh"
@@ -321,6 +336,7 @@ export function LiveMonitorPage() {
           </Button>
         </form>
       </Modal>
+      {/* #endregion */}
     </div>
   );
 }

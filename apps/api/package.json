@@ -68,5 +68,21 @@
     "ts-jest": "^29.2.6",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
+  },
+  "jest": {
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": ["**/*.(t|j)s"],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@eduexam/shared$": "<rootDir>/../../../packages/shared/src/index.ts",
+      "^(\\.\\.?/.*)\\.js$": "$1",
+      "^@/(.*)$": "<rootDir>/$1"
+    }
   }
 }

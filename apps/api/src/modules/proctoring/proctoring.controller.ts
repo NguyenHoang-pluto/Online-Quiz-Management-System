@@ -26,6 +26,7 @@ import { ProctoringBatchDto, BroadcastWarningDto } from './dto/proctoring.dto';
 export class ProctoringController {
   constructor(private readonly proctoring: ProctoringService) {}
 
+  // #region 5.1, 5.2, 5.3 — Thu nhận lô sự kiện & sendBeacon
   @Post('attempts/:attemptId/events')
   @Roles('STUDENT')
   @HttpCode(HttpStatus.OK)
@@ -42,7 +43,9 @@ export class ProctoringController {
   ) {
     return this.proctoring.ingestBatch(attemptId, dto, user);
   }
+  // #endregion
 
+  // #region Ảnh bằng chứng vi phạm
   @Post('violations/:violationId/evidence')
   @Roles('STUDENT')
   @HttpCode(HttpStatus.OK)
@@ -52,7 +55,7 @@ export class ProctoringController {
     schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } },
   })
   @ApiOperation({
-    summary: 'Gửi ảnh bằng chứng tại thời điểm vi phạm (chức năng 5.10)',
+    summary: 'Gửi ảnh bằng chứng tại thời điểm vi phạm',
     description:
       'Chỉ một khung hình duy nhất tại lúc phát hiện bất thường. Video không ' +
       'bao giờ rời khỏi máy thí sinh.',
@@ -71,7 +74,7 @@ export class ProctoringController {
 
   @Get('violations/:violationId/evidence')
   @Roles('ADMIN', 'LECTURER')
-  @ApiOperation({ summary: 'Xem ảnh bằng chứng (chức năng 5.11)' })
+  @ApiOperation({ summary: 'Xem ảnh bằng chứng' })
   async getEvidence(
     @Param('violationId') violationId: string,
     @CurrentUser() user: AuthUser,
@@ -85,7 +88,9 @@ export class ProctoringController {
     });
     res.send(buffer);
   }
+  // #endregion
 
+  // #region 5.7 — Màn hình theo dõi trực tiếp & Tổng quan ca thi
   @Get('live')
   @Roles('ADMIN', 'LECTURER')
   @ApiOperation({
@@ -105,14 +110,18 @@ export class ProctoringController {
   monitor(@Param('examId') examId: string, @CurrentUser() user: AuthUser) {
     return this.proctoring.getLiveMonitor(examId, user);
   }
+  // #endregion
 
+  // #region 5.8 — Dòng thời gian vi phạm sau ca thi
   @Get('attempts/:attemptId/timeline')
   @Roles('ADMIN', 'LECTURER')
   @ApiOperation({ summary: 'Dòng thời gian vi phạm sau ca thi (chức năng 5.8)' })
   timeline(@Param('attemptId') attemptId: string, @CurrentUser() user: AuthUser) {
     return this.proctoring.getTimeline(attemptId, user);
   }
+  // #endregion
 
+  // #region 5.5 — Gửi cảnh báo chung tới thí sinh (Broadcast)
   @Post('exams/:examId/broadcast')
   @Roles('ADMIN', 'LECTURER')
   @HttpCode(HttpStatus.OK)
@@ -124,4 +133,5 @@ export class ProctoringController {
   ) {
     return this.proctoring.broadcastWarning(examId, dto, user);
   }
+  // #endregion
 }

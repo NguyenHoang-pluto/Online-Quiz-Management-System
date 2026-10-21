@@ -56,8 +56,7 @@ export class ProctoringService {
     private readonly config: ConfigService,
   ) {}
 
-  // ==================== NHẬN SỰ KIỆN ====================
-
+  // #region 5.2, 5.3, 5.4, 5.5, 5.6 — Nhận và xử lý lô sự kiện (ingestBatch)
   /**
    * Chức năng 5.2 và 5.3 — nhận lô sự kiện gom mỗi 5 giây, hoặc gói cuối cùng
    * gửi bằng sendBeacon khi trình duyệt đóng đột ngột.
@@ -181,11 +180,11 @@ export class ProctoringService {
       violationIds,
     };
   }
+  // #endregion
 
-  // ==================== ẢNH BẰNG CHỨNG ====================
-
+  // #region Ảnh bằng chứng vi phạm
   /**
-   * Chức năng 5.10 — đính ảnh bằng chứng vào một vi phạm.
+   * Chức năng đính ảnh bằng chứng vào một vi phạm.
    *
    * Chỉ chụp tại đúng thời điểm phát hiện bất thường, không quay hay tải video
    * lên liên tục. Ảnh có hạn lưu trữ, hết hạn sẽ bị tác vụ nền xoá.
@@ -238,7 +237,9 @@ export class ProctoringService {
     if (!buffer) throw new NotFoundException('Ảnh đã bị xoá theo hạn lưu trữ');
     return buffer;
   }
+  // #endregion
 
+  // #region 5.4 — Quy tắc tính toán vi phạm tại Server
   /**
    * Quy tắc kết luận vi phạm. Rời màn hình dưới ngưỡng thì chỉ ghi nhận sự kiện
    * chứ không tính vi phạm — người dùng lỡ tay chuyển cửa sổ nửa giây là chuyện
@@ -289,9 +290,9 @@ export class ProctoringService {
     };
     return map[type] ?? type;
   }
+  // #endregion
 
-  // ==================== MÀN HÌNH GIÁM SÁT ====================
-
+  // #region Tổng quan mọi ca thi (Live Overview)
   /**
    * Màn hình giám sát TOÀN THỂ — tổng quan mọi ca thi giảng viên phụ trách.
    *
@@ -424,7 +425,9 @@ export class ProctoringService {
       warned: 0,
     };
   }
+  // #endregion
 
+  // #region 5.7 — Màn hình theo dõi trực tiếp cho Giảng viên (Live Monitor)
   /** Chức năng 5.7 — bảng theo dõi trực tiếp cho giảng viên. */
   async getLiveMonitor(examId: string, user: AuthUser) {
     const exam = await this.prisma.exam.findUnique({
@@ -518,7 +521,9 @@ export class ProctoringService {
       rows,
     };
   }
+  // #endregion
 
+  // #region 5.8 — Dòng thời gian vi phạm sau ca thi (Timeline)
   /** Chức năng 5.8 — dòng thời gian vi phạm của một thí sinh sau ca thi. */
   async getTimeline(attemptId: string, user: AuthUser) {
     const attempt = await this.prisma.attempt.findUnique({
@@ -565,7 +570,9 @@ export class ProctoringService {
       })),
     };
   }
+  // #endregion
 
+  // #region 5.5 — Gửi cảnh báo chung tới thí sinh (Broadcast)
   /** Gửi cảnh báo chung tới thí sinh đang thi. */
   async broadcastWarning(examId: string, dto: BroadcastWarningDto, user: AuthUser) {
     const exam = await this.prisma.exam.findUnique({
@@ -591,9 +598,9 @@ export class ProctoringService {
     }
     return { sent: targets.length };
   }
+  // #endregion
 
-  // ==================== TÁC VỤ ĐỊNH KỲ ====================
-
+  // #region 5.1 — Tác vụ nền phát hiện mất nhịp tim (Heartbeat) & tự động dọn dẹp
   /**
    * Phát hiện mất tín hiệu heartbeat (chức năng 5.1, tín hiệu thứ 4).
    *
@@ -689,4 +696,5 @@ export class ProctoringService {
     });
     this.logger.log(`Đã xoá ${expired.length} ảnh bằng chứng hết hạn lưu trữ`);
   }
+  // #endregion
 }
