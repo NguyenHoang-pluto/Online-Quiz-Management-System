@@ -19,6 +19,15 @@
   "prisma": {
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts"
   },
+  "jest": {
+    "moduleFileExtensions": ["js", "json", "ts"],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  },
   "dependencies": {
     "@eduexam/shared": "*",
     "@nestjs/bullmq": "^11.0.2",

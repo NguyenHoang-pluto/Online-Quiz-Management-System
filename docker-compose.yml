@@ -44,7 +44,10 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    # MinIO da xoa anh khoi Docker Hub (minio/minio khong con) va dl.min.io tra 410.
+    # Dung ban build lai cua Chainguard tu chinh nguon MinIO; chay bang user nonroot
+    # (uid 65532) nen volume phai duoc khoi tao boi chinh image nay.
+    image: cgr.dev/chainguard/minio:latest
     container_name: eduexam-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

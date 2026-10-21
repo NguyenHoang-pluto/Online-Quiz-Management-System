@@ -7,6 +7,7 @@ const NAV = [
   { to: '/lop-hoc-phan', label: 'Lớp học phần', hint: 'Gán sinh viên vào lớp', module: 1 },
   { to: '/tai-khoan', label: 'Tài khoản', hint: 'Import sinh viên từ Excel', module: 1, adminOnly: true },
   { to: '/ngan-hang-cau-hoi', label: 'Ngân hàng câu hỏi', hint: 'LaTeX/KaTeX, 3 mức độ', module: 2 },
+  { to: '/ngan-hang-cau-hoi/import', label: 'Import câu hỏi', hint: 'Excel/Word, xem trước khi ghi', module: 2 },
   { to: '/de-thi', label: 'Đề thi & Ma trận', hint: 'Ma trận đề, chính sách giám sát', module: 3 },
   { to: '/giam-sat', label: 'Giám sát toàn thể', hint: 'Mọi ca thi đang diễn ra', module: 5 },
 ];

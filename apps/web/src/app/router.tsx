@@ -25,6 +25,7 @@ const CatalogPage = lazy(() => import('@/features/catalog/CatalogPage').then((m)
 const CourseClassPage = lazy(() => import('@/features/catalog/CourseClassPage').then((m) => ({ default: m.CourseClassPage })));
 const UsersPage = lazy(() => import('@/features/catalog/UsersPage').then((m) => ({ default: m.UsersPage })));
 const QuestionBankPage = lazy(() => import('@/features/question-bank/QuestionBankPage').then((m) => ({ default: m.QuestionBankPage })));
+const QuestionImportPage = lazy(() => import('@/features/question-bank/QuestionImportPage').then((m) => ({ default: m.QuestionImportPage })));
 const ExamListPage = lazy(() => import('@/features/exam/ExamListPage').then((m) => ({ default: m.ExamListPage })));
 const ExamEditorPage = lazy(() => import('@/features/exam/ExamEditorPage').then((m) => ({ default: m.ExamEditorPage })));
 const LiveMonitorPage = lazy(() => import('@/features/proctoring/LiveMonitorPage').then((m) => ({ default: m.LiveMonitorPage })));
@@ -93,6 +94,11 @@ export const router = createBrowserRouter([
           { path: '/ngan-hang-cau-hoi', element: (
               <Lazy>
                 <QuestionBankPage />
+              </Lazy>
+            ) }, // M2
+          { path: '/ngan-hang-cau-hoi/import', element: (
+              <Lazy>
+                <QuestionImportPage />
               </Lazy>
             ) }, // M2
           { path: '/de-thi', element: (

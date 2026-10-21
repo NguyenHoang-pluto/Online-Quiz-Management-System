@@ -25,8 +25,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Uploads cuc bo (anh cau hoi, anh bang chung) - luu tren MinIO/S3
-uploads/
-storage/
+/uploads/
+/storage/
 
 # Test
 coverage/
@@ -55,7 +55,7 @@ apps/web/test/screenshots/
 # MediaPipe: 23MB WASM + model, tai bang `npm run setup:proctoring`
 apps/web/public/mediapipe/
 # Anh bang chung vi pham (du lieu sinh trac cua thi sinh)
-storage/
+/storage/
 
 # Chung chi tu ky dung khi chia se qua LAN (npm run share) - CHUA KHOA BI MAT
 certs/

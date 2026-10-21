@@ -1,35 +1,16 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/shared/api/client';
 import { MathContent } from '@/shared/components/ui/MathContent';
 import {
-  Badge, Button, Card, Empty, ErrorBox, Input, LABEL, Loading, Modal, PageHeader,
-  Pager, Select, Textarea, difficultyTone,
+  Badge, Button, Card, Empty, Input, LABEL, Loading, PageHeader,
+  Pager, Select, difficultyTone,
 } from '@/shared/components/ui';
 import type { Chapter, Paginated, Question, Subject } from '@/shared/types/api';
+import { QuestionEditorModal } from './QuestionEditorModal';
 
-const SYMBOLS = [
-  '\\frac{a}{b}', '\\sqrt{x}', '\\int_{a}^{b}', '\\iint_D', '\\sum_{i=1}^{n}',
-  '\\lim_{x \\to 0}', '\\partial', '\\infty', '\\alpha', '\\beta', '\\pi',
-  '\\leq', '\\geq', '\\neq', '\\in',
-];
-
-interface DraftOption {
-  label: string;
-  content: string;
-  isCorrect: boolean;
-}
-
-const emptyDraft = () => ({
-  chapterId: '',
-  type: 'SINGLE_CHOICE',
-  difficulty: 'MEDIUM',
-  content: '',
-  explanation: '',
-  options: ['A', 'B', 'C', 'D'].map((label) => ({ label, content: '', isCorrect: false })),
-});
-
-/** Module 2 — Soạn thảo và quản lý ngân hàng câu hỏi. */
+/** Module 2 — Quan ly ngan hang cau hoi (loc + xem + tao/sua qua modal dung chung). */
 export function QuestionBankPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -37,8 +18,10 @@ export function QuestionBankPage() {
   const [chapterId, setChapterId] = useState('');
   const [difficulty, setDifficulty] = useState('');
   const [q, setQ] = useState('');
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [draft, setDraft] = useState<ReturnType<typeof emptyDraft>>(emptyDraft());
+  const [editor, setEditor] = useState<{ open: boolean; initial: Question | null }>({
+    open: false,
+    initial: null,
+  });
 
   const subjects = useQuery({
     queryKey: ['subjects'],
@@ -51,9 +34,9 @@ export function QuestionBankPage() {
     queryFn: async () => (await api.get<Chapter[]>(`/catalog/subjects/${subjectId}/chapters`)).data,
   });
 
-  const draftChapters = useQuery({
-    queryKey: ['chapters', 'draft', subjectId],
-    enabled: editorOpen && !!subjectId,
+  const editorChapters = useQuery({
+    queryKey: ['chapters', 'editor', subjectId],
+    enabled: editor.open && !!subjectId,
     queryFn: async () => (await api.get<Chapter[]>(`/catalog/subjects/${subjectId}/chapters`)).data,
   });
 
@@ -69,53 +52,11 @@ export function QuestionBankPage() {
     },
   });
 
-  const createQuestion = useMutation({
-    mutationFn: (body: unknown) => api.post('/questions', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['questions'] });
-      setEditorOpen(false);
-      setDraft(emptyDraft());
-    },
-  });
-
   const toggleStatus = useMutation({
     mutationFn: (item: Question) =>
       api.patch(`/questions/${item.id}/${item.status === 'ACTIVE' ? 'disable' : 'enable'}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['questions'] }),
   });
-
-  const setOption = (i: number, patch: Partial<DraftOption>) =>
-    setDraft((d) => ({
-      ...d,
-      options: d.options.map((o, idx) => (idx === i ? { ...o, ...patch } : o)),
-    }));
-
-  const pickCorrect = (i: number) =>
-    setDraft((d) => ({
-      ...d,
-      options: d.options.map((o, idx) =>
-        d.type === 'MULTIPLE_CHOICE'
-          ? idx === i
-            ? { ...o, isCorrect: !o.isCorrect }
-            : o
-          : { ...o, isCorrect: idx === i },
-      ),
-    }));
-
-  const insertSymbol = (sym: string) =>
-    setDraft((d) => ({ ...d, content: `${d.content}$${sym}$` }));
-
-  const submit = () => {
-    const options = draft.options.filter((o) => o.content.trim() !== '');
-    createQuestion.mutate({
-      chapterId: draft.chapterId,
-      type: draft.type,
-      difficulty: draft.difficulty,
-      content: draft.content,
-      explanation: draft.explanation || undefined,
-      options,
-    });
-  };
 
   return (
     <div>
@@ -123,15 +64,17 @@ export function QuestionBankPage() {
         title="Ngân hàng câu hỏi"
         subtitle="Soạn thảo công thức toán bằng LaTeX, xem trước đúng như thí sinh nhìn thấy"
         actions={
-          <Button
-            onClick={() => {
-              setDraft({ ...emptyDraft(), chapterId: '' });
-              setEditorOpen(true);
-            }}
-            disabled={!subjectId}
-          >
-            + Soạn câu hỏi mới
-          </Button>
+          <div className="flex gap-2">
+            <Link to="/ngan-hang-cau-hoi/import">
+              <Button variant="ghost">Import từ file</Button>
+            </Link>
+            <Button
+              onClick={() => setEditor({ open: true, initial: null })}
+              disabled={!subjectId}
+            >
+              + Soạn câu hỏi mới
+            </Button>
+          </div>
         }
       />
 
@@ -220,7 +163,10 @@ export function QuestionBankPage() {
                 <Badge tone={item.status === 'ACTIVE' ? 'success' : 'neutral'}>
                   {item.status === 'ACTIVE' ? 'Khả dụng' : 'Vô hiệu hóa'}
                 </Badge>
-                <span className="ml-auto">
+                <span className="ml-auto flex gap-1">
+                  <Button variant="ghost" onClick={() => setEditor({ open: true, initial: item })}>
+                    Sửa
+                  </Button>
                   <Button variant="ghost" onClick={() => toggleStatus.mutate(item)}>
                     {item.status === 'ACTIVE' ? 'Vô hiệu hóa' : 'Kích hoạt lại'}
                   </Button>
@@ -228,6 +174,14 @@ export function QuestionBankPage() {
               </div>
 
               <MathContent content={item.content} className="mb-3 text-[15px]" />
+
+              {item.imageUrl && (
+                <img
+                  src={item.imageUrl}
+                  alt=""
+                  className="mb-3 max-h-40 rounded-default border border-border-default"
+                />
+              )}
 
               <div className="grid gap-2 sm:grid-cols-2">
                 {item.options.map((o) => (
@@ -258,138 +212,14 @@ export function QuestionBankPage() {
         </div>
       )}
 
-      <Modal open={editorOpen} title="Soạn câu hỏi" onClose={() => setEditorOpen(false)} wide>
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Select
-              label="Chương"
-              value={draft.chapterId}
-              onChange={(e) => setDraft({ ...draft, chapterId: e.target.value })}
-            >
-              <option value="">— Chọn chương —</option>
-              {draftChapters.data?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-            <Select
-              label="Loại câu hỏi"
-              value={draft.type}
-              onChange={(e) => setDraft({ ...draft, type: e.target.value })}
-            >
-              <option value="SINGLE_CHOICE">1 đáp án</option>
-              <option value="MULTIPLE_CHOICE">Nhiều đáp án</option>
-              <option value="TRUE_FALSE">Đúng / Sai</option>
-            </Select>
-            <Select
-              label="Mức độ"
-              value={draft.difficulty}
-              onChange={(e) => setDraft({ ...draft, difficulty: e.target.value })}
-            >
-              <option value="EASY">Dễ (Nhận biết)</option>
-              <option value="MEDIUM">Trung bình (Thông hiểu)</option>
-              <option value="HARD">Khó (Vận dụng cao)</option>
-            </Select>
-          </div>
-
-          <div>
-            <p className="mb-1 text-xs font-medium text-text-secondary">
-              Chèn ký hiệu toán học
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {SYMBOLS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => insertSymbol(s)}
-                  className="rounded-default border border-border-default bg-surface px-2 py-1 font-mono text-[11px] hover:bg-selected-bg"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-2">
-            <Textarea
-              label="Nội dung câu hỏi (LaTeX đặt giữa dấu $)"
-              rows={6}
-              value={draft.content}
-              onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-              placeholder="Tính tích phân $\int_0^1 x^2\,dx$"
-            />
-            <div>
-              <p className="mb-1 text-xs font-medium text-text-secondary">
-                Xem trước như thí sinh nhìn thấy
-              </p>
-              <div className="min-h-[9rem] rounded-default border border-border-default bg-surface p-3">
-                {draft.content ? (
-                  <MathContent content={draft.content} />
-                ) : (
-                  <span className="text-sm text-text-subdued">Chưa có nội dung</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-xs font-medium text-text-secondary">
-              Các phương án —{' '}
-              {draft.type === 'MULTIPLE_CHOICE'
-                ? 'bấm ô vuông để chọn nhiều đáp án đúng'
-                : 'bấm ô tròn để chọn đáp án đúng duy nhất'}
-            </p>
-            <div className="space-y-2">
-              {draft.options.slice(0, draft.type === 'TRUE_FALSE' ? 2 : 4).map((o, i) => (
-                <div key={o.label} className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => pickCorrect(i)}
-                    aria-label={`Đánh dấu ${o.label} là đáp án đúng`}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center font-mono text-xs font-bold transition ${
-                      draft.type === 'MULTIPLE_CHOICE' ? 'rounded-default' : 'rounded-full'
-                    } ${o.isCorrect ? 'bg-success text-white' : 'bg-surface-hover text-text-secondary'}`}
-                  >
-                    {o.label}
-                  </button>
-                  <input
-                    value={o.content}
-                    onChange={(e) => setOption(i, { content: e.target.value })}
-                    placeholder={
-                      draft.type === 'TRUE_FALSE'
-                        ? i === 0 ? 'Đúng' : 'Sai'
-                        : `Nội dung phương án ${o.label}`
-                    }
-                    className="w-full rounded-default border border-border-default px-3 py-2 font-mono text-sm outline-none focus:border-secondary"
-                  />
-                  <div className="hidden w-40 shrink-0 rounded-default bg-surface px-2 py-1 text-sm sm:block">
-                    <MathContent content={o.content} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <Textarea
-            label="Lời giải (tùy chọn, chỉ hiện khi đề cho phép xem đáp án)"
-            rows={2}
-            value={draft.explanation}
-            onChange={(e) => setDraft({ ...draft, explanation: e.target.value })}
-          />
-
-          {createQuestion.isError && <ErrorBox error={createQuestion.error} />}
-
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setEditorOpen(false)}>
-              Hủy
-            </Button>
-            <Button onClick={submit} disabled={createQuestion.isPending || !draft.chapterId}>
-              {createQuestion.isPending ? 'Đang lưu...' : 'Lưu vào ngân hàng'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <QuestionEditorModal
+        open={editor.open}
+        initial={editor.initial}
+        chapters={editorChapters.data ?? []}
+        defaultChapterId={chapterId}
+        onClose={() => setEditor({ open: false, initial: null })}
+        onSaved={() => qc.invalidateQueries({ queryKey: ['questions'] })}
+      />
     </div>
   );
 }
