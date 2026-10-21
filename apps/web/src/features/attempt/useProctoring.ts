@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import { api } from '@/shared/api/client';
 import { useAuthStore } from '@/features/auth/auth.store';
 import type { ProctoringThresholds } from '@/shared/types/api';
@@ -71,6 +72,7 @@ export function useProctoring({
   useEffect(() => {
     if (!enabled) return;
 
+    // #region 5.1 — Ghi nhận 4 tín hiệu (rời tab, mất focus, dán nội dung, mất heartbeat)
     // Rời tab hoặc chuyển sang ứng dụng khác
     const onVisibility = () => {
       if (document.hidden) {
@@ -111,7 +113,9 @@ export function useProctoring({
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
     document.addEventListener('paste', onPaste);
+    // #endregion
 
+    // #region 5.2 — Gom sự kiện gửi định kỳ 5 giây (Flush batch & Heartbeat)
     const flush = async () => {
       // Vẫn gửi lô rỗng: đó chính là nhịp heartbeat
       const events = queue.current;
@@ -156,13 +160,31 @@ export function useProctoring({
     };
 
     const timer = setInterval(flush, batchIntervalMs);
+    // #endregion
 
+    // #region 5.5 & 5.6 — Lắng nghe cảnh báo & lệnh nộp bài Realtime (WebSocket)
+    const socket: Socket = io('/', { transports: ['websocket', 'polling'] });
+    socket.on('connect', () => {
+      socket.emit('attempt:join', { attemptId });
+    });
+    socket.on('proctor:warning', (payload: any) => {
+      setState((s) => ({
+        ...s,
+        violationCount: payload.count ?? s.violationCount,
+        maxViolations: payload.max ?? s.maxViolations,
+        warning: payload.message ?? (payload.fromProctor ? 'Cảnh báo từ giám thị' : 'Cảnh báo vi phạm'),
+      }));
+    });
+    socket.on('proctor:force-submit', () => {
+      setState((s) => ({ ...s, terminated: true }));
+      terminatedRef.current();
+    });
+    // #endregion
+
+    // #region 5.3 — Gửi sự kiện khi đóng trình duyệt đột ngột (sendBeacon)
     /**
-     * Gói cuối khi đóng trình duyệt đột ngột.
-     *
-     * Đặc tả ban đầu ghi navigator.sendBeacon, nhưng sendBeacon không đính kèm
-     * được header Authorization nên server sẽ trả 401. Dùng fetch với
-     * keepalive: true — cùng cơ chế gửi nền, lại giữ được token xác thực.
+     * Gói cuối khi đóng trình duyệt đột ngột (chức năng 5.3).
+     * Hỗ trợ navigator.sendBeacon kèm token trong query param hoặc fetch keepalive.
      */
     const onPageHide = () => {
       if (queue.current.length === 0) return;
@@ -171,18 +193,27 @@ export function useProctoring({
         clientTime: new Date().toISOString(),
       });
       queue.current = [];
-      void fetch(`/api/v1/proctoring/attempts/${attemptId}/events`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${useAuthStore.getState().accessToken ?? ''}`,
-        },
-        body,
-        keepalive: true,
-        credentials: 'include',
-      }).catch(() => undefined);
+      const token = useAuthStore.getState().accessToken ?? '';
+      const url = `/api/v1/proctoring/attempts/${attemptId}/events?token=${encodeURIComponent(token)}`;
+
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const blob = new Blob([body], { type: 'application/json' });
+        navigator.sendBeacon(url, blob);
+      } else {
+        void fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body,
+          keepalive: true,
+          credentials: 'include',
+        }).catch(() => undefined);
+      }
     };
     window.addEventListener('pagehide', onPageHide);
+    // #endregion
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
@@ -190,6 +221,7 @@ export function useProctoring({
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('paste', onPaste);
       window.removeEventListener('pagehide', onPageHide);
+      socket.close();
       clearInterval(timer);
     };
   }, [attemptId, batchIntervalMs, enabled, pushEvent]);
