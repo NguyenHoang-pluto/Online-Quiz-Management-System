@@ -31,4 +31,22 @@ describe('parseQuestionMarkdown', () => {
     expect(questions).toHaveLength(1);
     expect(questions[0].content).toContain('Dòng một tiếp dòng hai');
   });
+
+  test('tolerates the backslashes Pandoc adds in front of [ and *', () => {
+    const { questions, errors } = parseQuestionMarkdown(
+      '\\[TB\\] Tính $2+2$\nA. $3$\n\\*B. $4$\nC. $5$',
+    );
+    expect(errors).toEqual([]);
+    expect(questions).toHaveLength(1);
+    expect(questions[0].difficulty).toBe('MEDIUM');
+    expect(questions[0].options.filter((o) => o.isCorrect).map((o) => o.label)).toEqual(['B']);
+  });
+
+  test('records the source line so the preview can label it', () => {
+    const { questions } = parseQuestionMarkdown(
+      '[TB] Câu một\nA. 1\n*B. 2\n\n[DE] Câu hai\nA. 3\n*B. 4',
+    );
+    expect(questions[0]).toMatchObject({ line: 1 });
+    expect(questions[1]).toMatchObject({ line: 5 });
+  });
 });

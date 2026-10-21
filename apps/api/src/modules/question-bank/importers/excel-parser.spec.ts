@@ -44,4 +44,18 @@ describe('parseQuestionWorkbook', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].row).toBe(2);
   });
+
+  test('keeps the sheet row number so the preview can label it', async () => {
+    const buffer = await workbookBuffer([
+      HEADER,
+      ['CAL2-C03', 'TB', '1DA', 'Câu đầu', '1', '2', '3', '4', 'A'],
+      ['CAL2-C03', 'DE', '1DA', 'Câu sau', '1', '2', '3', '4', 'B'],
+    ]);
+    const { rows } = await parseQuestionWorkbook(
+      buffer,
+      new Map([['CAL2-C03', { id: 'ch1' }]]),
+    );
+    expect(rows[0]).toMatchObject({ rowIndex: 2 });
+    expect(rows[1]).toMatchObject({ rowIndex: 3 });
+  });
 });

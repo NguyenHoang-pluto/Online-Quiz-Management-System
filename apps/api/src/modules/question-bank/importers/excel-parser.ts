@@ -5,6 +5,8 @@ import type { ParsedOption } from './question-text-parser';
 import { validateParsedOptions } from './question-text-parser';
 
 export interface ExcelParsedRow {
+  /** So dong trong sheet (tinh tu 1, ke ca dong tieu de) — de hien thi o buoc xem truoc. */
+  rowIndex: number;
   chapterId: string;
   type: ParsedType;
   difficulty: ParsedDifficulty;
@@ -80,7 +82,7 @@ export async function parseQuestionWorkbook(
     const ruleError = validateParsedOptions(type, options);
     if (ruleError) return void errors.push({ row: n, message: ruleError });
 
-    rows.push({ chapterId: chapter.id, type, difficulty, content, options });
+    rows.push({ rowIndex: n, chapterId: chapter.id, type, difficulty, content, options });
   });
 
   return { rows, errors };

@@ -8,6 +8,8 @@ export type ParsedDifficulty = 'EASY' | 'MEDIUM' | 'HARD';
 export type ParsedType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE';
 
 export interface ParsedQuestion {
+  /** Dong nguon (tinh tu 1) — de hien thi o buoc xem truoc. */
+  line: number;
   type: ParsedType;
   difficulty: ParsedDifficulty;
   content: string;
@@ -76,6 +78,7 @@ export function parseQuestionMarkdown(text: string): {
       errors.push({ row: current.line, message: 'Không có phương án nào đánh dấu * là đúng' });
     } else {
       questions.push({
+        line: current.line,
         type: correct > 1 ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
         difficulty: current.difficulty,
         content: current.content,
@@ -87,10 +90,11 @@ export function parseQuestionMarkdown(text: string): {
   };
 
   lines.forEach((raw, i) => {
-    const line = raw.replace(/\\$/, '').trim();
+    // Pandoc escape dau dong de khong bi hieu la link/nhan manh: \[TB\], \*B.
+    const line = raw.replace(/\\$/, '').trim().replace(/^\\\*/, '*');
     if (!line) return;
 
-    const head = line.match(/^\[(DE|TB|KHO)\]\s*(.+)$/i);
+    const head = line.match(/^\\?\[(DE|TB|KHO)\\?\]\s*(.+)$/i);
     if (head) {
       flush();
       current = {

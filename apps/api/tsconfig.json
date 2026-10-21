@@ -13,6 +13,10 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "incremental": true,
+    // Phai nam trong dist: nest-cli xoa dist moi lan chay (deleteOutDir). Neu file nay o
+    // ngoai, tsc thay "da build xong" trong khi dist da bi xoa -> dist rong, loi
+    // Cannot find module dist/main.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "skipLibCheck": true,
     "strict": true,
     "strictNullChecks": true,

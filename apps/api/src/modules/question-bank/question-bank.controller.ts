@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -19,6 +20,7 @@ import { QuestionBankService } from './question-bank.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CreateQuestionDto, UpdateQuestionDto, ListQuestionsDto } from './dto/question.dto';
+import { ConfirmImportDto } from './dto/import-preview.dto';
 
 @ApiTags('Ngân hàng câu hỏi - Module 2')
 @ApiBearerAuth()
@@ -69,6 +71,79 @@ export class QuestionBankController {
   @Patch(':id/enable')
   enable(@Param('id') id: string) {
     return this.questionBank.setStatus(id, 'ACTIVE');
+  }
+
+  @Post(':id/image')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Tải ảnh minh họa cho câu hỏi (chức năng 2.5)' })
+  uploadImage(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Chưa chọn file');
+    return this.questionBank.uploadImage(id, file.buffer, file.mimetype);
+  }
+
+  @Delete(':id/image')
+  @ApiOperation({ summary: 'Xóa ảnh minh họa của câu hỏi' })
+  removeImage(@Param('id') id: string) {
+    return this.questionBank.removeImage(id);
+  }
+
+  @Post('import/excel/preview')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        subjectId: { type: 'string' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Đọc thử file Excel, chưa ghi vào CSDL (bước 1 của 2.7)' })
+  previewExcel(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('subjectId') subjectId: string,
+  ) {
+    if (!file) throw new BadRequestException('Chưa chọn file');
+    if (!subjectId) throw new BadRequestException('Thiếu subjectId');
+    return this.questionBank.previewExcel(file.buffer, subjectId);
+  }
+
+  @Post('import/word/preview')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        subjectId: { type: 'string' },
+        chapterId: { type: 'string' },
+      },
+    },
+  })
+  @ApiOperation({ summary: 'Đọc thử file Word, chưa ghi vào CSDL (bước 1 của 2.6)' })
+  previewWord(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('subjectId') subjectId: string,
+    @Body('chapterId') chapterId: string,
+  ) {
+    if (!file) throw new BadRequestException('Chưa chọn file');
+    if (!subjectId || !chapterId) throw new BadRequestException('Thiếu subjectId hoặc chapterId');
+    return this.questionBank.previewWord(file.buffer, subjectId, chapterId);
+  }
+
+  @Post('import/confirm')
+  @ApiOperation({ summary: 'Ghi các dòng đã duyệt ở bước xem trước (bước 2 của 2.6/2.7)' })
+  confirmImport(@Body() dto: ConfirmImportDto, @CurrentUser('id') authorId: string) {
+    return this.questionBank.confirmImport(dto, authorId);
   }
 
   @Post('import/excel')

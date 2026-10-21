@@ -1,14 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import ExcelJS from 'exceljs';
 import sanitizeHtml from 'sanitize-html';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { writeFile, unlink, mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { QuestionImageService } from '../../infra/storage/question-image.service';
 import { PaginationDto, paginate } from '../../common/dto/pagination.dto';
 import type {
   CreateQuestionDto,
@@ -16,8 +12,10 @@ import type {
   ListQuestionsDto,
   QuestionOptionDto,
 } from './dto/question.dto';
-
-const execFileAsync = promisify(execFile);
+import type { ConfirmImportDto, ImportPreviewResponseDto } from './dto/import-preview.dto';
+import { parseQuestionWorkbook } from './importers/excel-parser';
+import { parseQuestionMarkdown } from './importers/question-text-parser';
+import { convertDocxToMarkdown } from './importers/word-converter';
 
 /** Hình dạng dữ liệu trả cho giảng viên — CÓ isCorrect. */
 const LECTURER_VIEW = {
@@ -45,11 +43,10 @@ const LECTURER_VIEW = {
  */
 @Injectable()
 export class QuestionBankService {
-  private readonly logger = new Logger(QuestionBankService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly images: QuestionImageService,
   ) {}
 
   /**
@@ -215,7 +212,102 @@ export class QuestionBankService {
     });
   }
 
+  // ==================== ẢNH MINH HỌA (2.5) ====================
+
+  async uploadImage(questionId: string, buffer: Buffer, mimetype: string) {
+    const question = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      select: { id: true, imageUrl: true },
+    });
+    if (!question) throw new NotFoundException('Không tìm thấy câu hỏi');
+
+    // Upload trước, xóa ảnh cũ sau: upload lỗi thì câu hỏi vẫn giữ ảnh cũ.
+    const uploaded = await this.images.upload(questionId, buffer, mimetype);
+    if (question.imageUrl) await this.images.removeByUrl(question.imageUrl);
+
+    await this.prisma.question.update({
+      where: { id: questionId },
+      data: { imageUrl: uploaded.imageUrl },
+    });
+    return uploaded;
+  }
+
+  async removeImage(questionId: string) {
+    const question = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      select: { id: true, imageUrl: true },
+    });
+    if (!question) throw new NotFoundException('Không tìm thấy câu hỏi');
+
+    if (question.imageUrl) await this.images.removeByUrl(question.imageUrl);
+    await this.prisma.question.update({
+      where: { id: questionId },
+      data: { imageUrl: null },
+    });
+  }
+
   // ==================== IMPORT ====================
+
+  /**
+   * Bước 1 của wizard import: đọc file, trả về từng dòng kèm lỗi của dòng đó.
+   * Không ghi gì vào CSDL — giảng viên sửa/xác nhận ở bước sau.
+   */
+  async previewExcel(buffer: Buffer, subjectId: string): Promise<ImportPreviewResponseDto> {
+    const chapters = await this.prisma.chapter.findMany({ where: { subjectId } });
+    if (chapters.length === 0) {
+      throw new BadRequestException('Môn học chưa khai báo chương nào');
+    }
+
+    const chapterByCode = new Map(chapters.map((c) => [c.code.toUpperCase(), c]));
+    const { rows, errors } = await parseQuestionWorkbook(buffer, chapterByCode);
+
+    return {
+      source: 'EXCEL',
+      subjectId,
+      rows: rows.map((r) => ({ ...r, rowErrors: [] })),
+      errors,
+    };
+  }
+
+  /** Bước 1 của wizard import Word. Chương do người dùng chọn, áp cho cả file. */
+  async previewWord(
+    buffer: Buffer,
+    subjectId: string,
+    chapterId: string,
+  ): Promise<ImportPreviewResponseDto> {
+    const chapter = await this.prisma.chapter.findFirst({ where: { id: chapterId, subjectId } });
+    if (!chapter) throw new NotFoundException('Chương không thuộc môn học này');
+
+    const markdown = await convertDocxToMarkdown(
+      buffer,
+      this.config.getOrThrow<string>('pandoc.bin'),
+      this.config.getOrThrow<number>('pandoc.timeoutMs'),
+    );
+    const { questions, errors } = parseQuestionMarkdown(markdown);
+
+    return {
+      source: 'WORD_PANDOC',
+      subjectId,
+      rows: questions.map((q) => ({
+        rowIndex: q.line,
+        rowErrors: [],
+        chapterId,
+        type: q.type,
+        difficulty: q.difficulty,
+        content: q.content,
+        options: q.options,
+      })),
+      errors,
+    };
+  }
+
+  /**
+   * Bước 2: ghi các dòng giảng viên đã tick. Một dòng lỗi không làm hỏng cả lô —
+   * đếm vào `failed` để người dùng biết còn thiếu câu nào.
+   */
+  async confirmImport(dto: ConfirmImportDto, authorId: string) {
+    return this.persistRows(dto.items, authorId);
+  }
 
   /**
    * Chức năng 2.7 — Import câu hỏi từ Excel.
@@ -225,99 +317,9 @@ export class QuestionBankService {
    * Đáp án đúng: "B" hoặc "A,C" với câu nhiều đáp án
    */
   async importFromExcel(buffer: Buffer, subjectId: string, authorId: string) {
-    const chapters = await this.prisma.chapter.findMany({ where: { subjectId } });
-    if (chapters.length === 0) {
-      throw new BadRequestException('Môn học chưa khai báo chương nào');
-    }
-    const chapterByCode = new Map(chapters.map((c) => [c.code.toUpperCase(), c]));
-
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer as any);
-    const sheet = wb.worksheets[0];
-    if (!sheet) throw new BadRequestException('File Excel không có sheet nào');
-
-    const DIFF: Record<string, 'EASY' | 'MEDIUM' | 'HARD'> = {
-      DE: 'EASY', EASY: 'EASY',
-      TB: 'MEDIUM', MEDIUM: 'MEDIUM',
-      KHO: 'HARD', HARD: 'HARD',
-    };
-    const TYPE: Record<string, 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'TRUE_FALSE'> = {
-      '1DA': 'SINGLE_CHOICE', SINGLE: 'SINGLE_CHOICE',
-      NDA: 'MULTIPLE_CHOICE', MULTIPLE: 'MULTIPLE_CHOICE',
-      DS: 'TRUE_FALSE', TRUEFALSE: 'TRUE_FALSE',
-    };
-
-    const errors: { row: number; message: string }[] = [];
-    const parsed: (CreateQuestionDto & { subjectId: string })[] = [];
-
-    sheet.eachRow((row, n) => {
-      if (n === 1) return;
-      const cell = (i: number) => String(row.getCell(i).value ?? '').trim();
-
-      const chapterCode = cell(1).toUpperCase();
-      if (!chapterCode) return;
-
-      const chapter = chapterByCode.get(chapterCode);
-      if (!chapter) return void errors.push({ row: n, message: `Không có chương ${chapterCode}` });
-
-      const difficulty = DIFF[cell(2).toUpperCase()];
-      if (!difficulty) return void errors.push({ row: n, message: `Mức độ sai: ${cell(2)}` });
-
-      const type = TYPE[cell(3).toUpperCase().replace(/[\s-]/g, '')];
-      if (!type) return void errors.push({ row: n, message: `Loại câu hỏi sai: ${cell(3)}` });
-
-      const content = cell(4);
-      if (!content) return void errors.push({ row: n, message: 'Thiếu nội dung câu hỏi' });
-
-      const labels = ['A', 'B', 'C', 'D'];
-      const answers = cell(9).toUpperCase().split(/[,;\s]+/).filter(Boolean);
-      if (answers.length === 0) return void errors.push({ row: n, message: 'Thiếu đáp án đúng' });
-
-      const options = labels
-        .map((label, i) => ({ label, content: cell(5 + i), isCorrect: answers.includes(label) }))
-        .filter((o) => o.content !== '');
-
-      if (options.length < 2) {
-        return void errors.push({ row: n, message: 'Phải có tối thiểu 2 phương án' });
-      }
-      if (!options.some((o) => o.isCorrect)) {
-        return void errors.push({ row: n, message: `Đáp án "${cell(9)}" không khớp phương án nào` });
-      }
-
-      try {
-        this.validateOptions(type, options);
-      } catch (e: any) {
-        return void errors.push({ row: n, message: e.message });
-      }
-
-      parsed.push({ subjectId, chapterId: chapter.id, type, difficulty, content, options });
-    });
-
-    let created = 0;
-    for (const q of parsed) {
-      try {
-        await this.create(q, authorId);
-        created++;
-      } catch (e: any) {
-        errors.push({ row: 0, message: `Lỗi lưu câu hỏi: ${e.message}` });
-      }
-    }
-
-    await this.prisma.importJob.create({
-      data: {
-        source: 'EXCEL',
-        status: created > 0 ? 'SUCCEEDED' : 'FAILED',
-        fileName: 'import-cau-hoi.xlsx',
-        totalRows: parsed.length + errors.length,
-        successRows: created,
-        failedRows: errors.length,
-        errors: errors.length ? (errors as any) : undefined,
-        createdById: authorId,
-        finishedAt: new Date(),
-      },
-    });
-
-    return { created, failed: errors.length, errors };
+    const preview = await this.previewExcel(buffer, subjectId);
+    const result = await this.persistRows(preview.rows, authorId);
+    return this.finishImport('EXCEL', 'import-cau-hoi.xlsx', preview.errors, result, authorId);
   }
 
   /**
@@ -335,125 +337,53 @@ export class QuestionBankService {
    * tiến trình treo vô hạn và chiếm hết tài nguyên máy chủ.
    */
   async importFromWord(buffer: Buffer, subjectId: string, chapterId: string, authorId: string) {
-    const chapter = await this.prisma.chapter.findFirst({ where: { id: chapterId, subjectId } });
-    if (!chapter) throw new NotFoundException('Chương không thuộc môn học này');
+    const preview = await this.previewWord(buffer, subjectId, chapterId);
+    const result = await this.persistRows(preview.rows, authorId);
+    return this.finishImport('WORD_PANDOC', 'import-cau-hoi.docx', preview.errors, result, authorId);
+  }
 
-    const dir = await mkdtemp(join(tmpdir(), 'eduexam-pandoc-'));
-    const docxPath = join(dir, 'input.docx');
-    await writeFile(docxPath, buffer);
-
-    let markdown: string;
-    try {
-      const { stdout } = await execFileAsync(
-        this.config.getOrThrow<string>('pandoc.bin'),
-        [docxPath, '-f', 'docx', '-t', 'markdown', '--wrap=none'],
-        {
-          timeout: this.config.getOrThrow<number>('pandoc.timeoutMs'),
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      );
-      markdown = stdout;
-    } catch (e: any) {
-      this.logger.error(`Pandoc lỗi: ${e.message}`);
-      throw new BadRequestException(
-        e.code === 'ENOENT'
-          ? 'Chưa cài Pandoc trên máy chủ. Xem hướng dẫn trong README.'
-          : `Không đọc được file Word: ${e.message}`,
-      );
-    } finally {
-      await unlink(docxPath).catch(() => undefined);
-    }
-
-    const { questions, errors } = this.parseQuestionText(markdown);
-
+  /** Ghi từng dòng; một dòng lỗi không làm hỏng cả lô. */
+  private async persistRows(rows: CreateQuestionDto[], authorId: string) {
+    const errors: { row: number; message: string }[] = [];
     let created = 0;
-    for (const q of questions) {
+
+    for (const [i, row] of rows.entries()) {
       try {
-        await this.create({ ...q, chapterId }, authorId);
+        await this.create(row, authorId);
         created++;
-      } catch (e: any) {
-        errors.push({ row: 0, message: e.message });
+      } catch (e) {
+        errors.push({ row: i + 1, message: (e as Error).message });
       }
     }
 
+    return { created, failed: errors.length, errors };
+  }
+
+  /** Ghi lịch sử import rồi trả kết quả cho controller. */
+  private async finishImport(
+    source: 'EXCEL' | 'WORD_PANDOC',
+    fileName: string,
+    parseErrors: { row: number; message: string }[],
+    result: { created: number; errors: { row: number; message: string }[] },
+    authorId: string,
+  ) {
+    const errors = [...parseErrors, ...result.errors];
+
     await this.prisma.importJob.create({
       data: {
-        source: 'WORD_PANDOC',
-        status: created > 0 ? 'SUCCEEDED' : 'FAILED',
-        fileName: 'import-cau-hoi.docx',
-        totalRows: questions.length + errors.length,
-        successRows: created,
+        source,
+        status: result.created > 0 ? 'SUCCEEDED' : 'FAILED',
+        fileName,
+        totalRows: result.created + errors.length,
+        successRows: result.created,
         failedRows: errors.length,
-        errors: errors.length ? (errors as any) : undefined,
+        errors: errors.length ? (errors as never) : undefined,
         createdById: authorId,
         finishedAt: new Date(),
       },
     });
 
-    return { created, failed: errors.length, errors };
-  }
-
-  /** Bóc tách câu hỏi từ văn bản thuần theo định dạng quy ước. */
-  parseQuestionText(text: string) {
-    const DIFF: Record<string, 'EASY' | 'MEDIUM' | 'HARD'> = {
-      DE: 'EASY', TB: 'MEDIUM', KHO: 'HARD',
-    };
-    const questions: Omit<CreateQuestionDto, 'chapterId'>[] = [];
-    const errors: { row: number; message: string }[] = [];
-
-    const lines = text.split(/\r?\n/);
-    let current: { difficulty: 'EASY' | 'MEDIUM' | 'HARD'; content: string; line: number } | null =
-      null;
-    let options: QuestionOptionDto[] = [];
-
-    const flush = () => {
-      if (!current) return;
-      const correct = options.filter((o) => o.isCorrect).length;
-      if (options.length < 2) {
-        errors.push({ row: current.line, message: 'Câu hỏi có ít hơn 2 phương án' });
-      } else if (correct === 0) {
-        errors.push({ row: current.line, message: 'Không có phương án nào đánh dấu * là đúng' });
-      } else {
-        questions.push({
-          type: correct > 1 ? 'MULTIPLE_CHOICE' : 'SINGLE_CHOICE',
-          difficulty: current.difficulty,
-          content: current.content,
-          options,
-        });
-      }
-      current = null;
-      options = [];
-    };
-
-    lines.forEach((raw, i) => {
-      const line = raw.replace(/\\$/, '').trim();
-      if (!line) return;
-
-      const head = line.match(/^\[(DE|TB|KHO)\]\s*(.+)$/i);
-      if (head) {
-        flush();
-        current = {
-          difficulty: DIFF[head[1].toUpperCase()],
-          content: head[2].trim(),
-          line: i + 1,
-        };
-        return;
-      }
-
-      const opt = line.match(/^(\*?)\s*([A-H])[.)]\s*(.+)$/);
-      if (opt && current) {
-        options.push({ label: opt[2], content: opt[3].trim(), isCorrect: opt[1] === '*' });
-        return;
-      }
-
-      // Dòng tiếp nối nội dung câu hỏi
-      if (current && options.length === 0) {
-        current.content += ' ' + line;
-      }
-    });
-    flush();
-
-    return { questions, errors };
+    return { created: result.created, failed: errors.length, errors };
   }
 
   /** File Excel mẫu cho việc nhập câu hỏi. */
