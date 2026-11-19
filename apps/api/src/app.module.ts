@@ -27,7 +27,7 @@ import { SmartThrottlerGuard } from './common/guards/smart-throttler.guard';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
-      envFilePath: ['../../.env'],
+      envFilePath: ['.env', '../../.env'],
     }),
     ScheduleModule.forRoot(),
     // Chặn dò mật khẩu và spam nộp bài
