@@ -50,12 +50,20 @@ function Lazy({ children }: { children: ReactNode }) {
   );
 }
 
+const ALL_ROLES: Role[] = ['ADMIN', 'LECTURER', 'STUDENT'];
+
 /** Chặn route theo vai trò — song song với RolesGuard ở backend. */
 function RequireRole({ roles }: { roles: Role[] }) {
   const user = useAuthStore((s) => s.user);
   if (!user) return <Navigate to="/dang-nhap" replace />;
   if (!roles.includes(user.role)) return <Navigate to="/" replace />;
   return <Outlet />;
+}
+
+/** Trang dùng chung nhưng vẫn giữ khung đúng của từng vai trò. */
+function RoleLayout() {
+  const role = useAuthStore((s) => s.user?.role);
+  return role === 'STUDENT' ? <StudentLayout /> : <DashboardLayout />;
 }
 
 /** Đưa mỗi vai trò về đúng trang chủ của mình. */
@@ -68,6 +76,24 @@ function HomeRedirect() {
 export const router = createBrowserRouter([
   { path: '/dang-nhap', element: <LoginPage />, errorElement: <ErrorPage /> },
   { path: '/', element: <HomeRedirect /> },
+
+  // ---------- Trang dùng chung ----------
+  {
+    element: <RequireRole roles={ALL_ROLES} />,
+    errorElement: <ErrorPage />,
+    children: [
+      {
+        element: <RoleLayout />,
+        children: [
+          { path: '/doi-mat-khau', element: (
+              <Lazy>
+                <ChangePasswordPage />
+              </Lazy>
+            ) },
+        ],
+      },
+    ],
+  },
 
   // ---------- Phân hệ quản trị và giảng dạy ----------
   {
@@ -127,11 +153,6 @@ export const router = createBrowserRouter([
                 <ResultPage />
               </Lazy>
             ) },    // M6
-          { path: '/doi-mat-khau', element: (
-              <Lazy>
-                <ChangePasswordPage />
-              </Lazy>
-            ) }, // M1
         ],
       },
     ],
@@ -156,11 +177,6 @@ export const router = createBrowserRouter([
                 <MyResultPage />
               </Lazy>
             ) },// M6
-          { path: '/doi-mat-khau', element: (
-              <Lazy>
-                <ChangePasswordPage />
-              </Lazy>
-            ) }, // M1
         ],
       },
       {
