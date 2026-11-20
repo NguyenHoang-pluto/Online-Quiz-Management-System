@@ -9,6 +9,7 @@ import {
 } from '@/shared/components/ui';
 import { EvidenceThumb } from './EvidenceThumb';
 import type { LiveMonitor, MonitorRow, Timeline } from '@/shared/types/api';
+import { filterMonitorRows } from './filterMonitorRows';
 
 const STATE_LABEL: Record<MonitorRow['state'], { text: string; tone: any }> = {
   BINH_THUONG: { text: 'Bình thường', tone: 'success' },
@@ -70,13 +71,7 @@ export function LiveMonitorPage() {
   if (monitor.isError) return <ErrorBox error={monitor.error} />;
 
   const m = monitor.data!;
-  const rows = m.rows.filter(
-    (r) =>
-      (!filter || r.state === filter) &&
-      (!q ||
-        r.studentCode.toLowerCase().includes(q.toLowerCase()) ||
-        r.studentName.toLowerCase().includes(q.toLowerCase())),
-  );
+  const rows = filterMonitorRows(m.rows, filter, q);
 
   return (
     <div>

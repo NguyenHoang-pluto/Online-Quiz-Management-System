@@ -60,6 +60,9 @@ TypeScript báo lỗi ngay khi hai bên lệch nhau, thay vì để lỗi lọt 
 
 ## 3. Cài đặt và chạy
 
+Hướng dẫn chi tiết (prerequisite, cài đặt từng dịch vụ, biến `.env`, cổng, kiểm
+tra sau cài và xử lý lỗi): [docs/SETUP.md](docs/SETUP.md).
+
 **Yêu cầu:** Node.js >= 22, Pandoc (chỉ cần cho chức năng import Word), và MySQL 8
 + Redis 7 — chạy bằng Docker hoặc cài trực tiếp.
 
@@ -198,14 +201,14 @@ nào thì toàn bộ phần giám sát trở nên vô nghĩa.
 ## 7. Kiểm thử
 
 ```bash
-npm run test:e2e     # 89 phep thu qua API
+npm run test:e2e     # 110 phep thu qua API
 npm run test:ui      # 50 phep thu tren trinh duyet
 npm run test:camera  # 21 phep thu giam sat bang camera
 ```
 
 Cả ba cần API chạy ở cổng 3000; hai bộ sau cần thêm web ở cổng 5173.
 
-**Kiểm thử API** — [e2e-full-flow.mjs](apps/api/test/e2e-full-flow.mjs), **89 phép thử**
+**Kiểm thử API** — [e2e-full-flow.mjs](apps/api/test/e2e-full-flow.mjs), **110 phép thử**
 chạy trọn vòng đời một kỳ thi: admin dựng danh mục → giảng viên soạn 36 câu hỏi,
 dựng ma trận, phát hành → 3 sinh viên làm bài với 3 mức độ đúng khác nhau →
 giám sát hành vi → chấm điểm, bảng điểm, phổ điểm, phân tích câu hỏi, xuất Excel.
@@ -247,5 +250,16 @@ Trong đó có các phép thử bảo mật bắt buộc phải đạt:
 | `npm run infra:up` / `infra:down` | Bật / tắt Docker |
 | `npm run infra:reset` | Xoá sạch dữ liệu Docker |
 | `npm run lint` | Kiểm tra và sửa code style |
-| `npm run test:e2e` | Chạy 89 phép thử end-to-end |
+| `npm run test:e2e` | Chạy 110 phép thử end-to-end |
 | `npm run mysql:start` / `mysql:status` | Bật / kiểm tra MySQL khi không dùng Docker |
+| `npm run deploy:up` / `deploy:down` | Dựng / dừng toàn bộ hệ thống (MySQL, Redis, MinIO, API, web qua Nginx) |
+
+---
+
+## 9. CI, triển khai và mật khẩu
+
+- `.github/workflows/ci.yml` chạy `npm ci`, build và unit test trên mỗi push vào `dev`/`main` và mọi PR.
+- `npm run deploy:up` dùng `docker-compose.yml` + `docker-compose.deploy.yml`: API ở `localhost:3000`, giao diện ở `localhost:8080`. Nginx proxy `/api` và `/socket.io` tới API. file `deploy/nginx.conf` cấu hình SPA fallback cho các route dạng `/ket-qua/:id`.
+- Đổi mật khẩu cá nhân có giao diện tại `/doi-mat-khau` (`POST /auth/change-password`). Sau khi đổi, mọi refresh token cũ bị thu hồi và người dùng phải đăng nhập lại.
+- Quên mật khẩu **không có luồng self-service**: hệ thống không có dịch vụ gửi email/SMS. Quản trị viên dùng nút "Đặt lại mật khẩu" trong `UsersPage` (`PATCH /users/:id/reset-password`). Bảng `password_resets` được giữ lại trong schema để sau này nối email mà không cần sửa cấu trúc.
+- Báo cáo giám sát sau ca thi nằm ở tab "Giám sát sau ca thi" trong trang kết quả (`ResultPage`), dùng chung bộ lọc với màn hình trực tiếp.

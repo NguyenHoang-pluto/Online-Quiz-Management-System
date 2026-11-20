@@ -6,6 +6,7 @@ import {
   Pager, Row, Select, Table, formatDateTime,
 } from '@/shared/components/ui';
 import type { Paginated, User } from '@/shared/types/api';
+import { validateNewPassword } from '@/features/auth/passwordRules';
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: 'Quản trị viên',
@@ -21,6 +22,8 @@ export function UsersPage() {
   const [q, setQ] = useState('');
   const [openCreate, setOpenCreate] = useState(false);
   const [openImport, setOpenImport] = useState(false);
+  const [resetOf, setResetOf] = useState<User | null>(null);
+  const [resetValue, setResetValue] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const users = useQuery({
@@ -45,6 +48,17 @@ export function UsersPage() {
     mutationFn: (u: User) =>
       api.patch(`/users/${u.id}/${u.status === 'ACTIVE' ? 'lock' : 'unlock'}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  const resetPassword = useMutation({
+    retry: false,
+    mutationFn: ({ id, newPassword }: { id: string; newPassword: string }) =>
+      api.patch(`/users/${id}/reset-password`, { newPassword }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setResetOf(null);
+      setResetValue('');
+    },
   });
 
   const importExcel = useMutation({
@@ -145,13 +159,25 @@ export function UsersPage() {
                   </Cell>
                   <Cell className="font-mono text-xs">{formatDateTime(u.lastLoginAt)}</Cell>
                   <Cell>
-                    <Button
-                      variant={u.status === 'ACTIVE' ? 'ghost' : 'success'}
-                      disabled={toggleLock.isPending}
-                      onClick={() => toggleLock.mutate(u)}
-                    >
-                      {u.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}
-                    </Button>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        variant={u.status === 'ACTIVE' ? 'ghost' : 'success'}
+                        disabled={toggleLock.isPending}
+                        onClick={() => toggleLock.mutate(u)}
+                      >
+                        {u.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setResetOf(u);
+                          setResetValue('');
+                          resetPassword.reset();
+                        }}
+                      >
+                        Đặt lại mật khẩu
+                      </Button>
+                    </div>
                   </Cell>
                 </Row>
               ))}
@@ -191,6 +217,38 @@ export function UsersPage() {
             {createUser.isPending ? 'Đang tạo...' : 'Tạo tài khoản'}
           </Button>
         </form>
+      </Modal>
+
+      <Modal
+        open={!!resetOf}
+        title={`Đặt lại mật khẩu — ${resetOf?.fullName ?? ''}`}
+        onClose={() => setResetOf(null)}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            Đặt lại mật khẩu cho <strong className="font-mono">{resetOf?.code}</strong>. Mọi phiên
+            đăng nhập cũ của tài khoản này sẽ bị thu hồi.
+          </p>
+          <Input
+            label="Mật khẩu mới"
+            type="password"
+            autoComplete="new-password"
+            value={resetValue}
+            onChange={(e) => setResetValue(e.target.value)}
+            hint="Ít nhất 8 ký tự, gồm chữ hoa, chữ thường và số"
+          />
+          {resetValue && validateNewPassword(resetValue) && (
+            <p className="text-xs text-danger">{validateNewPassword(resetValue)}</p>
+          )}
+          {resetPassword.isError && <ErrorBox error={resetPassword.error} />}
+          <Button
+            className="w-full"
+            disabled={!resetOf || !!validateNewPassword(resetValue) || resetPassword.isPending}
+            onClick={() => resetOf && resetPassword.mutate({ id: resetOf.id, newPassword: resetValue })}
+          >
+            {resetPassword.isPending ? 'Đang đặt lại...' : 'Đặt lại mật khẩu'}
+          </Button>
+        </div>
       </Modal>
 
       <Modal

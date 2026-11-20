@@ -33,6 +33,7 @@ const LiveOverviewPage = lazy(() => import('@/features/proctoring/LiveOverviewPa
 const ResultPage = lazy(() => import('@/features/result/ResultPage').then((m) => ({ default: m.ResultPage })));
 const MyResultPage = lazy(() => import('@/features/result/MyResultPage').then((m) => ({ default: m.MyResultPage })));
 const MyHistoryPage = lazy(() => import('@/features/result/MyHistoryPage').then((m) => ({ default: m.MyHistoryPage })));
+const ChangePasswordPage = lazy(() => import('@/features/auth/ChangePasswordPage').then((m) => ({ default: m.ChangePasswordPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
   return (
@@ -126,6 +127,11 @@ export const router = createBrowserRouter([
                 <ResultPage />
               </Lazy>
             ) },    // M6
+          { path: '/doi-mat-khau', element: (
+              <Lazy>
+                <ChangePasswordPage />
+              </Lazy>
+            ) }, // M1
         ],
       },
     ],
@@ -150,6 +156,11 @@ export const router = createBrowserRouter([
                 <MyResultPage />
               </Lazy>
             ) },// M6
+          { path: '/doi-mat-khau', element: (
+              <Lazy>
+                <ChangePasswordPage />
+              </Lazy>
+            ) }, // M1
         ],
       },
       {

@@ -555,7 +555,11 @@ export class ProctoringService {
         severity: v.severity,
         note: v.note,
         occurredAt: v.occurredAt,
-        evidenceUrl: v.evidenceUrl,
+        // Khoá lưu trữ (evidence/<id>.jpg) không phải URL — phải đi qua endpoint
+        // có kiểm quyền, nếu không sinh viên đọc thẳng được ảnh bằng chứng.
+        evidenceUrl: v.evidenceUrl
+          ? `/proctoring/violations/${v.id}/evidence`
+          : null,
         offsetSeconds: Math.floor(
           (v.occurredAt.getTime() - attempt.startedAt.getTime()) / 1000,
         ),

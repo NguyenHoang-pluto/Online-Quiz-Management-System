@@ -4,6 +4,7 @@ import { api } from '@/shared/api/client';
 import { Button, ErrorBox, Modal, Select, Textarea } from '@/shared/components/ui';
 import type { Chapter, Question } from '@/shared/types/api';
 import { LatexToolbar } from './LatexToolbar';
+import { insertLatex } from './latexInsert';
 import { DraftOption, OptionEditor, validateDraftOptions } from './OptionEditor';
 import { QuestionImageUploader } from './QuestionImageUploader';
 import { QuestionPreviewCard } from './QuestionPreviewCard';
@@ -71,10 +72,9 @@ export function QuestionEditorModal({
 
   const insertSymbol = (snippet: string) =>
     setContent((c) => {
-      const at = cursor ?? c.length;
-      const next = c.slice(0, at) + snippet + c.slice(at);
-      setCursor(at + snippet.length);
-      return next;
+      const next = insertLatex(c, cursor, snippet);
+      setCursor(next.cursor);
+      return next.value;
     });
 
   const submit = () => {

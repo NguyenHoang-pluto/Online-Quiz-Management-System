@@ -8,6 +8,7 @@ import {
   Stat, Table, formatDateTime,
 } from '@/shared/components/ui';
 import { ScoreDistributionChart } from './ScoreDistributionChart';
+import { ProctoringReport } from '@/features/proctoring/ProctoringReport';
 import type { Distribution, Gradebook, ItemAnalysis } from '@/shared/types/api';
 
 const QUALITY: Record<string, { text: string; tone: any }> = {
@@ -17,7 +18,7 @@ const QUALITY: Record<string, { text: string; tone: any }> = {
   CAN_RA_SOAT: { text: 'Cần rà soát', tone: 'danger' },
 };
 
-type Tab = 'gradebook' | 'analysis';
+type Tab = 'gradebook' | 'analysis' | 'proctoring';
 
 /** Module 6 — Bảng điểm, phổ điểm và phân tích câu hỏi. */
 export function ResultPage() {
@@ -108,6 +109,7 @@ export function ResultPage() {
           [
             ['gradebook', `Bảng điểm (${g.rows.length})`],
             ['analysis', 'Phân tích câu hỏi'],
+            ['proctoring', 'Giám sát sau ca thi'],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button
@@ -179,6 +181,8 @@ export function ResultPage() {
             </Table>
           )}
         </Card>
+      ) : tab === 'proctoring' ? (
+        <ProctoringReport examId={examId} />
       ) : analysis.isLoading ? (
         <Loading />
       ) : !analysis.data || analysis.data.items.length === 0 ? (

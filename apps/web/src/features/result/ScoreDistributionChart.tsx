@@ -3,6 +3,7 @@ import {
   Tooltip, XAxis, YAxis,
 } from 'recharts';
 import type { Distribution } from '@/shared/types/api';
+import { passPercent } from './passRate';
 
 const BELOW = 'var(--color-chart-below)';
 const PASS = 'var(--color-chart-pass)';
@@ -45,7 +46,9 @@ export function ScoreDistributionChart({ data }: { data: Distribution }) {
           </li>
           <li className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-sm" style={{ background: PASS }} />
-            <span className="text-text-secondary">Đạt trở lên ({data.total - failed})</span>
+            <span className="text-text-secondary">
+              Đạt trở lên ({data.total - failed} · {passPercent(data.total, failed)}%)
+            </span>
           </li>
         </ul>
       </div>

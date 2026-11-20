@@ -10,6 +10,7 @@ const NAV = [
   { to: '/ngan-hang-cau-hoi/import', label: 'Import câu hỏi', hint: 'Excel/Word, xem trước khi ghi', module: 2 },
   { to: '/de-thi', label: 'Đề thi & Ma trận', hint: 'Ma trận đề, chính sách giám sát', module: 3 },
   { to: '/giam-sat', label: 'Giám sát toàn thể', hint: 'Mọi ca thi đang diễn ra', module: 5 },
+  { to: '/doi-mat-khau', label: 'Đổi mật khẩu', hint: 'Tài khoản cá nhân', module: 1 },
 ];
 
 /** Khung cho phân hệ quản trị và giảng dạy. KHÔNG dùng cho màn làm bài. */

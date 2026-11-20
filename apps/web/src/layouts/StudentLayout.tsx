@@ -5,6 +5,7 @@ import { LogoutButton } from './LogoutButton';
 const NAV = [
   { to: '/ca-thi', label: 'Ca thi của tôi' },
   { to: '/lich-su', label: 'Lịch sử thi' },
+  { to: '/doi-mat-khau', label: 'Đổi mật khẩu' },
 ];
 
 /** Khung cho sinh viên ngoài lúc làm bài. */
@@ -14,9 +15,9 @@ export function StudentLayout() {
   return (
     <div className="min-h-screen bg-surface">
       <header className="sticky top-0 z-10 border-b border-border-default bg-surface-card">
-        <div className="mx-auto flex h-[52px] max-w-4xl items-center gap-4 px-4">
+        <div className="mx-auto flex min-h-[52px] max-w-4xl flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
           <p className="font-bold text-primary">EduExam Pro</p>
-          <nav className="flex gap-1">
+          <nav className="flex flex-wrap gap-1">
             {NAV.map((n) => (
               <NavLink
                 key={n.to}

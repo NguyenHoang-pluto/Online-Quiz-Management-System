@@ -34,7 +34,9 @@
     "db:studio": "npm run db:studio -w @eduexam/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "infra:reset": "docker compose down -v"
+    "infra:reset": "docker compose down -v",
+    "deploy:up": "docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --build",
+    "deploy:down": "docker compose -f docker-compose.yml -f docker-compose.deploy.yml down"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

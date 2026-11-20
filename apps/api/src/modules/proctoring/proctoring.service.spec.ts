@@ -226,4 +226,34 @@ describe('ProctoringService (Module 5)', () => {
       ).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('5.8 — getTimeline', () => {
+    it('trả về đường dẫn API của ảnh, không phải khoá lưu trữ', async () => {
+      prisma.attempt.findUnique.mockResolvedValue({
+        ...mockAttempt,
+        student: { code: '3122410127', fullName: 'Nguyễn Huy Hoàng' },
+        exam: { ...mockAttempt.exam, title: 'Đề thi', courseClass: { lecturerId: 'lecturer-1' } },
+        submittedAt: null,
+        violations: [
+          {
+            id: 'viol-1',
+            sequenceNo: 1,
+            type: 'FACE_ABSENT',
+            severity: 'WARNING',
+            note: null,
+            occurredAt: new Date(),
+            evidenceUrl: 'evidence/viol-1.jpg',
+          },
+        ],
+        events: [],
+      });
+
+      const res = await service.getTimeline('attempt-1', {
+        id: 'admin-1',
+        role: 'ADMIN',
+      } as any);
+
+      expect(res.violations[0].evidenceUrl).toBe('/proctoring/violations/viol-1/evidence');
+    });
+  });
 });
